@@ -8,8 +8,8 @@ item_list = ['carpet', 'bottle', 'hazelnut', 'leather', 'cable', 'capsule', 'gri
              'transistor', 'metal_nut', 'screw', 'toothbrush', 'zipper', 'tile', 'wood']
 for type_cor in ['brightness','contrast','defocus_blur','gaussian_noise']:
     for _class_ in item_list:
-        path_orginal = './mvtec/' + _class_ + '/' + 'test' #path to the test set of original mvtec 
-        path = './mvtec_'+type_cor+'/' + _class_ + '/' + 'test' #path to the corrupted mvtec 
+        path_orginal = './data/mvtec/' + _class_ + '/' + 'test' #path to the test set of original mvtec 
+        path = './data/mvtec_'+type_cor+'/' + _class_ + '/' + 'test' #path to the corrupted mvtec 
         isExist = os.path.exists(path)
         if not isExist:
             os.makedirs(path)

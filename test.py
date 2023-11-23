@@ -13,6 +13,9 @@ from os import listdir
 from torchvision import transforms
 import torch
 
+with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+    import yaml
+    config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
 
 def cal_anomaly_map(fs_list, ft_list, out_size=224, amap_mode='mul'):
@@ -56,15 +59,15 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader,device, type_of_test, img_s
     pr_list_sp = []
 
     if dataset_name == 'mnist':
-        link_to_normal_sample = '/home/cttri/anomaly/data/MNIST/MNIST_grey/training/' + str(_class_) #update the link here
+        link_to_normal_sample = f'{config["mnist_grey_root"]}/training/' + str(_class_) #update the link here
         filenames = [f for f in listdir(link_to_normal_sample)]
         filenames.sort()
-        link_to_normal_sample = '/home/tri/data/MNIST/MNIST_grey/training/' + str(_class_) + '/' + filenames[0] #update the link here
+        link_to_normal_sample = f'{config["mnist_grey_root"]}/training/' + str(_class_) + '/' + filenames[0] #update the link here
         normal_image = Image.open(link_to_normal_sample).convert("RGB")
 
 
     if dataset_name == 'mvtec':
-        link_to_normal_sample = '/home/cttri/anomaly/data/mvtec/' + _class_ + '/train/good/000.png' #update the link here
+        link_to_normal_sample = f'{config["mvtec_root"]}' + _class_ + '/train/good/000.png' #update the link here
         normal_image = Image.open(link_to_normal_sample).convert("RGB")
 
     if dataset_name == 'PACS':
@@ -77,10 +80,10 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader,device, type_of_test, img_s
             5: 'house',
             6: 'person'
         }
-        link_to_normal_sample = '/home/cttri/anomaly/PACS/train/photo/' + labels_dict[_class_] #update the link here
+        link_to_normal_sample = f'{config["PACS_root"]}/train/photo/' + labels_dict[_class_] #update the link here
         filenames = [f for f in listdir(link_to_normal_sample)]
         filenames.sort()
-        link_to_normal_sample = '/home/cttri/anomaly/PACS/train/photo/' + labels_dict[_class_] + '/' + filenames[0] #update the link here
+        link_to_normal_sample = f'{config["PACS_root"]}/train/photo/' + labels_dict[_class_] + '/' + filenames[0] #update the link here
         normal_image = Image.open(link_to_normal_sample).convert("RGB")
 
     if dataset_name != 'mnist':

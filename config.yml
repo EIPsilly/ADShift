@@ -1,0 +1,31 @@
+mnist_grey: /home/hzw/DGAD/dataset/mnist_png
+mnist_m: /home/hzw/DGAD/dataset/mnist_m
+cifar_10_root: /home/hzw/DGAD/dataset/CIFAR10
+cifar_10_ood_root: /home/hzw/DGAD/dataset/ood/cifar10_ood
+mvtec_root: /home/hzw/DGAD/dataset/mvtec
+mvtec_ood_root: /home/hzw/DGAD/dataset/ood/mvtec_ood
+PACS_root: /home/hzw/DGAD/dataset/PACS
+PACS_domain_to_idx:
+  art_painting: 0
+  cartoon: 1
+  photo: 2
+  sketch: 3
+PACS_class_to_idx:
+  dog: 0
+  elephant: 1
+  giraffe: 2
+  guitar: 3
+  horse: 4
+  house: 5
+  person: 6
+PACS_idx_to_class:
+  0: dog
+  1: elephant
+  2: giraffe
+  3: guitar
+  4: horse
+  5: house
+  6: person
+
+model_save: /home/hzw/DGAD/domain-generalization-for-anomaly-detection/checkpoint
+result_save: /home/hzw/DGAD/domain-generalization-for-anomaly-detection/results

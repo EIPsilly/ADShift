@@ -1,4 +1,6 @@
 import torch
+import logging
+import os
 import numpy as np
 from resnet import  wide_resnet50_2
 from de_resnet import de_wide_resnet50_2
@@ -6,6 +8,9 @@ from dataset import PACSDataset, AugMixDatasetPACS
 from torch.nn import functional as F
 import torchvision.transforms as transforms
 
+with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+    import yaml
+    config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -57,7 +62,7 @@ def loss_concat(a, b):
 
 
 def train(_class_):
-    print(_class_)
+    logging.info(_class_)
     epochs = 20
     learning_rate = 0.005
     batch_size = 16
@@ -74,7 +79,7 @@ def train(_class_):
     }
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(device)
+    logging.info(device)
 
 
     resize_transform = transforms.Compose([
@@ -88,10 +93,15 @@ def train(_class_):
                              std=std_train),
     ])
 
-    train_path = './PACS/train/photo/' +_class_ 
+    train_path = f'{config["PACS_root"]}/train/photo/' +_class_ 
     train_data = PACSDataset(root=train_path, transform=resize_transform)
     train_data = AugMixDatasetPACS(train_data, preprocess)
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    
+    temp = []
+    for normal, augmix_img, gray_img in train_dataloader:
+        temp.append(normal)
+        
 
     encoder, bn = wide_resnet50_2(pretrained=True)
     encoder = encoder.to(device)
@@ -112,27 +122,28 @@ def train(_class_):
         decoder.train()
         loss_list = []
         for normal, augmix_img, gray_img in train_dataloader:
-            normal = normal.to(device)
-            inputs_normal = encoder(normal)
-            bn_normal = bn(inputs_normal)
-            outputs_normal = decoder(bn_normal)  
+            normal = normal.to(device)  # (3,256,256)
+            inputs_normal = encoder(normal) # [(256,64,64), (512,32,32), (1024,16,16)]
+            bn_normal = bn(inputs_normal) # (2048,8,8)
+            outputs_normal = decoder(bn_normal)  # [(256,64,64), (512,32,32), (1024,16,16)]
 
 
-            augmix_img = augmix_img.to(device)
-            inputs_augmix = encoder(augmix_img)
-            bn_augmix = bn(inputs_augmix)
-            outputs_augmix = decoder(bn_augmix)
+            augmix_img = augmix_img.to(device) # (3,256,256)
+            inputs_augmix = encoder(augmix_img) # [(256,64,64), (512,32,32), (1024,16,16)]
+            bn_augmix = bn(inputs_augmix) # (2048,8,8)
+            outputs_augmix = decoder(bn_augmix) # [(256,64,64), (512,32,32), (1024,16,16)]
 
-            gray_img = gray_img.to(device)
+            gray_img = gray_img.to(device) # (3,256,256)
             inputs_gray = encoder(gray_img)
             bn_gray = bn(inputs_gray)
             outputs_gray = decoder(bn_gray)
 
+            # 对应论文的 L_abs
             loss_bn = loss_fucntion([bn_normal], [bn_augmix]) + loss_fucntion([bn_normal], [bn_gray])
 
-
+            # 对应论文的 L_lowf
             loss_last = loss_fucntion_last(outputs_normal, outputs_augmix) + loss_fucntion_last(outputs_normal, outputs_gray)
-
+            # 对应论文的 L_ori
             loss_normal = loss_fucntion(inputs_normal, outputs_normal)
             loss = loss_normal*0.9 + loss_bn*0.05 + loss_last*0.05
 
@@ -141,7 +152,7 @@ def train(_class_):
             optimizer.step()
             loss_list.append(loss.item())
 
-        print('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
+        logging.info('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
         if (epoch + 1) % 20 == 0 :
             ckp_path = './checkpoints/' + 'PACS_DINL_' + str(_class_) + '_' + str(epoch) + '.pth'
             torch.save({'bn': bn.state_dict(),
@@ -152,7 +163,11 @@ def train(_class_):
 
 
 if __name__ == '__main__':
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s -%(module)s:  %(message)s', datefmt='%Y-%m-%d %H:%M:%S ')
+    logging.getLogger().setLevel(logging.INFO)
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
     item_list = ["dog", "elephant", "giraffe", "guitar", "horse", "house", "person"]
     for i in item_list:
         train(i)
 
+# nohup python train_PACS_DINL.py > PACS.log 2>&1 &

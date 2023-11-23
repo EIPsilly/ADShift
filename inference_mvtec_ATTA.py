@@ -5,7 +5,9 @@ from de_resnet import  de_wide_resnet50_2
 from dataset import MVTecDataset, MVTecDatasetOOD
 from test import  evaluation_ATTA
 
-
+with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+    import yaml
+    config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
 def test_mvtec(_class_):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -13,11 +15,11 @@ def test_mvtec(_class_):
     data_transform, gt_transform = get_data_transforms(256, 256)
 
     #load data
-    test_path_id = './mvtec/' + _class_ #update here
-    test_path_brightness = './mvtec_brightness/' + _class_ #update here
-    test_path_constrast = './mvtec_contrast/' + _class_ #update here
-    test_path_defocus_blur = './mvtec_defocus_blur/' + _class_ #update here
-    test_path_gaussian_noise = './mvtec_gaussian_noise/' + _class_ #update here
+    test_path_id = f'{config["mvtec_root"]}/mvtec/' + _class_ #update here
+    test_path_brightness = f'{config["mvtec_ood_root"]}/mvtec_brightness/' + _class_ #update here
+    test_path_constrast = f'{config["mvtec_ood_root"]}/mvtec_contrast/' + _class_ #update here
+    test_path_defocus_blur = f'{config["mvtec_ood_root"]}/mvtec_defocus_blur/' + _class_ #update here
+    test_path_gaussian_noise = f'{config["mvtec_ood_root"]}/mvtec_gaussian_noise/' + _class_ #update here
     ckp_path = './checkpoints/' + 'mvtec_DINL_' + str(_class_) + '_19.pth'
     test_data_id = MVTecDataset(root=test_path_id, transform=data_transform, gt_transform=gt_transform,
                              phase="test")
@@ -88,6 +90,9 @@ def test_mvtec(_class_):
     print(list_results)
 
     return
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 item_list = ['carpet', 'leather', 'grid', 'tile', 'wood', 'bottle', 'hazelnut', 'cable', 'capsule',
              'pill', 'transistor', 'metal_nut', 'screw', 'toothbrush', 'zipper']

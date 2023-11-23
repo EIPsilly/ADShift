@@ -1,10 +1,15 @@
 import torch
+import os
 from torchvision.datasets import ImageFolder
 from resnet_TTA import wide_resnet50_2
 from de_resnet import de_wide_resnet50_2
 import torchvision.transforms as transforms
 from test import evaluation_ATTA
 
+
+with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+    import yaml
+    config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
 def test_PACS(_class_):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -32,10 +37,10 @@ def test_PACS(_class_):
         transforms.Normalize(mean=mean_train,
                              std=std_train)])
 
-    test_path_ID = './PACS/val/photo/' #update here
-    test_path_OOD_art_painting = './PACS/val/art_painting/' #update here
-    test_path_OOD_cartoon = './PACS/val/cartoon/' #update here
-    test_path_OOD_sketch = './PACS/val/sketch/' #update here
+    test_path_ID = f'{config["PACS_root"]}/test/photo/' #update here
+    test_path_OOD_art_painting = f'{config["PACS_root"]}/test/art_painting/' #update here
+    test_path_OOD_cartoon = f'{config["PACS_root"]}/test/cartoon/' #update here
+    test_path_OOD_sketch = f'{config["PACS_root"]}/test/sketch/' #update here
 
     test_data_ID = ImageFolder(root=test_path_ID, transform=img_transforms)
     test_data_OOD_art_painting = ImageFolder(root=test_path_OOD_art_painting, transform=img_transforms)
@@ -47,7 +52,7 @@ def test_PACS(_class_):
     data_OOD_cartoon_loader = torch.utils.data.DataLoader(test_data_OOD_cartoon, batch_size=1, shuffle=False)
     data_OOD_sketch_loader = torch.utils.data.DataLoader(test_data_OOD_sketch, batch_size=1, shuffle=False)
 
-    ckp_path_decoder = './checkpoints/' + 'PACS_DINL_' + str(_class_) + '_19.pth'
+    ckp_path_decoder = './checkpoints/' + 'PACS_DINL_' + name_dataset + '_19.pth'
 
     #load model
     encoder, bn = wide_resnet50_2(pretrained=True)
@@ -98,6 +103,8 @@ def test_PACS(_class_):
 
     return
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+# test_PACS(1)
 
 for i in range(0,7):
     test_PACS(i)

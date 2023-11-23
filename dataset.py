@@ -9,6 +9,10 @@ from PIL import Image, ImageOps, ImageEnhance
 import random
 from torch.utils.data import Dataset
 
+with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+    import yaml
+    config = yaml.load(f.read(), Loader=yaml.FullLoader)
+
 IMAGE_SIZE = 256
 mean_train = [0.485, 0.456, 0.406]
 std_train = [0.229, 0.224, 0.225]
@@ -113,7 +117,7 @@ class MVTecDatasetOOD(torch.utils.data.Dataset):
             self.img_path = os.path.join(root, 'train')
         else:
             self.img_path = os.path.join(root, 'test')
-            self.gt_path = os.path.join('/home/cttri/anomaly/data/mvtec/'+_class_, 'ground_truth')
+            self.gt_path = os.path.join(f'{config["mvtec_root"]}/'+_class_, 'ground_truth')
         self.transform = transform
         self.gt_transform = gt_transform
         # load dataset
@@ -189,7 +193,7 @@ class PACSDataset(torch.utils.data.Dataset):
 
         self.transform = transform
         # load dataset
-        self.img_paths = glob.glob(self.img_path+'/*.png')
+        self.img_paths = glob.glob(self.img_path+'/*.jpg')
 
     def __len__(self):
         return len(self.img_paths)

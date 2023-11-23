@@ -6,6 +6,9 @@ from torch.nn import functional as F
 import torchvision.transforms as transforms
 from dataset import AugMixDatasetMVTec
 
+with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+    import yaml
+    config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -79,7 +82,7 @@ def train(_class_):
     ])
 
 
-    train_path = './mvtec/' + _class_ + '/train' #update here
+    train_path = f'{config["mvtec_root"]}/{_class_}/train' #update here
     train_data = ImageFolder(root=train_path, transform=resize_transform)
     train_data = AugMixDatasetMVTec(train_data, preprocess)
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
@@ -141,6 +144,8 @@ def train(_class_):
 
 
 if __name__ == '__main__':
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
     item_list = ['carpet', 'leather', 'grid', 'tile', 'wood', 'bottle', 'hazelnut', 'cable', 'capsule',
                   'pill', 'transistor', 'metal_nut', 'screw', 'toothbrush', 'zipper']
     for i in item_list:
