@@ -2,3 +2,5 @@ data
 __pycache__
 checkpoints
 *.log
+analysis
+results

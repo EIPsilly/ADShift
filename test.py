@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from torch.nn import functional as F
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, auc, precision_recall_curve
 import cv2
 from scipy.ndimage import gaussian_filter
 from PIL import Image
@@ -132,7 +132,9 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader,device, type_of_test, img_s
             gt_list_sp.append(int(label))
             pr_list_sp.append(np.max(anomaly_map))
         auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 4)
-    return auroc_sp
+        precision, recall, threshold = precision_recall_curve(gt_list_sp, pr_list_sp)
+        auprc = auc(recall, precision)
+    return auroc_sp, auprc
 
 
 

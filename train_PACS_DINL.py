@@ -61,7 +61,7 @@ def loss_concat(a, b):
     return loss
 
 
-def train(_class_):
+def train(_class_, runnint_times):
     logging.info(_class_)
     epochs = 20
     learning_rate = 0.005
@@ -98,11 +98,7 @@ def train(_class_):
     train_data = AugMixDatasetPACS(train_data, preprocess)
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     
-    temp = []
-    for normal, augmix_img, gray_img in train_dataloader:
-        temp.append(normal)
-        
-
+    
     encoder, bn = wide_resnet50_2(pretrained=True)
     encoder = encoder.to(device)
     bn = bn.to(device)
@@ -114,7 +110,8 @@ def train(_class_):
                                  betas=(0.5, 0.999))
 
 
-
+    if os.path.exists(f'./checkpoints/one-versus-many/test{runnint_times}') == False:
+        os.mkdir(f'./checkpoints/one-versus-many/test{runnint_times}')
 
 
     for epoch in range(epochs):
@@ -154,7 +151,7 @@ def train(_class_):
 
         logging.info('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
         if (epoch + 1) % 20 == 0 :
-            ckp_path = './checkpoints/' + 'PACS_DINL_' + str(_class_) + '_' + str(epoch) + '.pth'
+            ckp_path = f'./checkpoints/one-versus-many/test{runnint_times}/PACS_DINL_{_class_}_{epoch}.pth'
             torch.save({'bn': bn.state_dict(),
                         'decoder': decoder.state_dict()}, ckp_path)
 
@@ -165,9 +162,10 @@ def train(_class_):
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s -%(module)s:  %(message)s', datefmt='%Y-%m-%d %H:%M:%S ')
     logging.getLogger().setLevel(logging.INFO)
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     item_list = ["dog", "elephant", "giraffe", "guitar", "horse", "house", "person"]
-    for i in item_list:
-        train(i)
+    for runnint_times in range(1, 10):
+        for i in item_list:
+            train(i, runnint_times)
 
 # nohup python train_PACS_DINL.py > PACS.log 2>&1 &

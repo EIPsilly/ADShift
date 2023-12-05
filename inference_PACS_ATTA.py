@@ -1,3 +1,5 @@
+import numpy as np
+import pandas as pd
 import torch
 import os
 from torchvision.datasets import ImageFolder
@@ -11,18 +13,11 @@ with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml
     import yaml
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
-def test_PACS(_class_):
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+labels_dict = config["PACS_idx_to_class"]
 
-    labels_dict = {
-        0: 'dog',
-        1: 'elephant',
-        2: 'giraffe',
-        3: 'guitar',
-        4: 'horse',
-        5: 'house',
-        6: 'person'
-    }
+def test_PACS(_class_, running_times = 0):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
     name_dataset = labels_dict[_class_]
     print('Class: ', name_dataset)
 
@@ -52,7 +47,7 @@ def test_PACS(_class_):
     data_OOD_cartoon_loader = torch.utils.data.DataLoader(test_data_OOD_cartoon, batch_size=1, shuffle=False)
     data_OOD_sketch_loader = torch.utils.data.DataLoader(test_data_OOD_sketch, batch_size=1, shuffle=False)
 
-    ckp_path_decoder = './checkpoints/' + 'PACS_DINL_' + name_dataset + '_19.pth'
+    ckp_path_decoder = f'checkpoints/one-versus-many/test{running_times}/PACS_DINL_{name_dataset}_19.pth'
 
     #load model
     encoder, bn = wide_resnet50_2(pretrained=True)
@@ -74,41 +69,63 @@ def test_PACS(_class_):
 
     lamda = 0.5
 
-    list_results = []
-    auroc_sp = evaluation_ATTA(encoder, bn, decoder, data_ID_loader, device,
+    list_results_AUROC = []
+    list_results_AUPRC = []
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_loader, device,
                                                type_of_test='EFDM_test',
                                                img_size=256, lamda=lamda, dataset_name='PACS', _class_=_class_)
-    print('Sample Auroc_ID {:.4f}'.format(auroc_sp))
-    list_results.append(auroc_sp)
+    list_results_AUROC.append(auroc_sp)
+    list_results_AUPRC.append(auprc)
+    print('Sample Auroc_photo {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_photo {:.4f}'.format(auprc))
 
-    auroc_sp = evaluation_ATTA(encoder, bn, decoder, data_OOD_art_painting_loader, device,
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_OOD_art_painting_loader, device,
                                                type_of_test='EFDM_test',
                                                img_size=256, lamda=lamda, dataset_name='PACS', _class_=_class_)
+    list_results_AUROC.append(auroc_sp)
+    list_results_AUPRC.append(auprc)
     print('Sample Auroc_art {:.4f}'.format(auroc_sp))
-    list_results.append(auroc_sp)
+    print('Sample AUPRC_art {:.4f}'.format(auprc))
 
-    auroc_sp = evaluation_ATTA(encoder, bn, decoder, data_OOD_cartoon_loader, device,
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_OOD_cartoon_loader, device,
                                                type_of_test='EFDM_test',
                                                img_size=256, lamda=lamda, dataset_name='PACS', _class_=_class_)
-    list_results.append(auroc_sp)
+    list_results_AUROC.append(auroc_sp)
+    list_results_AUPRC.append(auprc)
     print('Sample Auroc_cartoon {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_cartoon {:.4f}'.format(auprc))
 
-    auroc_sp = evaluation_ATTA(encoder, bn, decoder, data_OOD_sketch_loader, device,
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_OOD_sketch_loader, device,
                                                type_of_test='EFDM_test',
                                                img_size=256, lamda=lamda, dataset_name='PACS', _class_=_class_)
-    list_results.append(auroc_sp)
+    list_results_AUROC.append(auroc_sp)
+    list_results_AUPRC.append(auprc)
     print('Sample Auroc_sketch {:.4f}'.format(auroc_sp))
-    print(list_results)
+    print('Sample AUPRC_sketch {:.4f}'.format(auprc))
+    print(list_results_AUROC)
+    print(list_results_AUPRC)
 
 
-    return
+    return list_results_AUROC, list_results_AUPRC
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # test_PACS(1)
 
-for i in range(0,7):
-    test_PACS(i)
-    print('===============================================')
-    print('')
-    print('')
+AUROC_results = []
+AUPRC_results = []
+for running_times in range(10):
+    one_auroc_results = []
+    one_auprc_results = []
+    for i in range(0,7):
+        auroc, auprc = test_PACS(i, running_times)
+        one_auroc_results.append(auroc)
+        one_auprc_results.append(auprc)
+        print('===============================================')
+        print('')
+        print('')
+    AUROC_results.append(one_auroc_results)
+    AUPRC_results.append(one_auprc_results)
 
+np.savez("results/one-versus-many-results.npz", AUROC_results = np.array(AUROC_results), AUPRC_results = np.array(AUPRC_results))
+
+# nohup python inference_PACS_ATTA.py > inference_PACS_ATTA.log 2>&1 &
