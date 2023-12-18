@@ -10,7 +10,7 @@ from de_resnet import de_wide_resnet50_2
 from torch.nn import functional as F
 import torchvision.transforms as transforms
 
-with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
     import yaml
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
@@ -61,7 +61,7 @@ def loss_concat(a, b):
     return loss
 
 class PACSDataset(torch.utils.data.Dataset):
-    def __init__(self, root, transform, in_domain_type, normal_class):
+    def __init__(self, root, transform):
         data = np.load(root)
         
         self.transform = transform
@@ -243,7 +243,7 @@ class AugMixDatasetPACS(torch.utils.data.Dataset):
     return len(self.dataset)
   
 
-def train(in_domain_type, normal_class, anomaly_class, running_times = 0):
+def train(normal_class, anomaly_class, running_times = 0):
     logging.info(normal_class)
     epochs = 20
     learning_rate = 0.005
@@ -267,10 +267,10 @@ def train(in_domain_type, normal_class, anomaly_class, running_times = 0):
                              std=std_train),
     ])
 
-    # train_path = f'{config["PACS_root"]}/train/photo/' +normal_class 
+    # train_path = f'{config["PACS_root"]}/train/photo/' +normal_class
     
-    train_path = f'/home/hzw/DGAD/domain-generalization-for-anomaly-detection/data/20231204-PACS-{normal_class}-{anomaly_class}.npz'
-    train_data = PACSDataset(root=train_path, transform=resize_transform, in_domain_type = in_domain_type, normal_class = normal_class)
+    train_path = f'../domain-generalization-for-anomaly-detection/data/unsupervised/20231204-PACS-{normal_class}-{anomaly_class}.npz'
+    train_data = PACSDataset(root=train_path, transform=resize_transform)
     train_data = AugMixDatasetPACS(train_data, preprocess)
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     
@@ -339,17 +339,17 @@ if __name__ == '__main__':
     logging.getLogger().setLevel(logging.INFO)
     os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
-    for running_times in range(10):
-        train("sketch", "0123", "456", running_times)
-        train("sketch", "456", "0123", running_times)
-        train("sketch", "0246", "135", running_times)
-        train("sketch", "135", "0246", running_times)
+    for running_times in range(5):
+        train("0123", "456", running_times)
+        train("456", "0123", running_times)
+        train("0246", "135", running_times)
+        train("135", "0246", running_times)
 
     # from line_profiler import LineProfiler
     # lp = LineProfiler()
     # lp.add_function(augpacs)
     # lp_wrapper  = lp(train)
-    # lp_wrapper("sketch", "0123", "456")
+    # lp_wrapper("0123", "456", 0)
     # lp.print_stats()
     
 

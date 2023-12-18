@@ -13,7 +13,7 @@ from os import listdir
 from torchvision import transforms
 import torch
 
-with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
     import yaml
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 

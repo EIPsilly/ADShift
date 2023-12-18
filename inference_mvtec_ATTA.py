@@ -5,7 +5,7 @@ from de_resnet import  de_wide_resnet50_2
 from dataset import MVTecDataset, MVTecDatasetOOD
 from test import  evaluation_ATTA
 
-with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
     import yaml
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 

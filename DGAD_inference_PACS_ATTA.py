@@ -15,7 +15,7 @@ from scipy.ndimage import gaussian_filter
 from torch.nn import functional as F
 import yaml
 
-with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
 labels_dict = config["PACS_idx_to_class"]
@@ -115,7 +115,7 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader,device, type_of_test, img_s
         auprc = auc(recall, precision)
     return auroc_sp, auprc
 
-with open("/home/hzw/DGAD/domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
+with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
     import yaml
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
