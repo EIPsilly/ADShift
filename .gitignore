@@ -4,3 +4,4 @@ checkpoints
 *.log
 analysis
 results
+*.sh

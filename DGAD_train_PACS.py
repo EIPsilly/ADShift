@@ -1,3 +1,4 @@
+import argparse
 import random
 from PIL import Image, ImageOps, ImageEnhance
 import glob
@@ -78,7 +79,7 @@ class PACSDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         img_path= self.img_paths[idx]
-        img = Image.open(img_path).convert('RGB')
+        img = Image.open(config["PACS_root"] + img_path).convert('RGB')
         img = self.transform(img)
 
         return img, 0
@@ -245,8 +246,6 @@ class AugMixDatasetPACS(torch.utils.data.Dataset):
 
 def train(normal_class, anomaly_class, running_times = 0):
     logging.info(normal_class)
-    epochs = 20
-    learning_rate = 0.005
     batch_size = 16
     image_size = 256
 
@@ -269,7 +268,7 @@ def train(normal_class, anomaly_class, running_times = 0):
 
     # train_path = f'{config["PACS_root"]}/train/photo/' +normal_class
     
-    train_path = f'../domain-generalization-for-anomaly-detection/data/unsupervised/20231204-PACS-{normal_class}-{anomaly_class}.npz'
+    train_path = f'../domain-generalization-for-anomaly-detection/data/unsupervised/20231218-PACS-{normal_class}-{anomaly_class}.npz'
     train_data = PACSDataset(root=train_path, transform=resize_transform)
     train_data = AugMixDatasetPACS(train_data, preprocess)
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
@@ -325,11 +324,10 @@ def train(normal_class, anomaly_class, running_times = 0):
             loss_list.append(loss.item())
 
         logging.info('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
-        if (epoch + 1) % 20 == 0 :
-            ckp_path = f'./checkpoints/many-versus-many/test{running_times}/PACS_DINL_{normal_class}_{anomaly_class}_{epoch}.pth'
-            torch.save({'bn': bn.state_dict(),
-                        'decoder': decoder.state_dict()}, ckp_path)
-
+    
+    ckp_path = f'./checkpoints/many-versus-many/test{running_times}/PACS_DINL_{normal_class}_{anomaly_class}_epochs={epochs}_lr={learning_rate}_cnt={running_times}.pth'
+    torch.save({'bn': bn.state_dict(),
+                'decoder': decoder.state_dict()}, ckp_path)
 
     return
 
@@ -337,13 +335,21 @@ def train(normal_class, anomaly_class, running_times = 0):
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s -%(module)s:  %(message)s', datefmt='%Y-%m-%d %H:%M:%S ')
     logging.getLogger().setLevel(logging.INFO)
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    args = argparse.ArgumentParser()
+    args.add_argument("--epochs",type=int,default=20)
+    args.add_argument("--learning_rate",type=float,default=0.005)
+    args.add_argument("--gpu",type=str,default="0")
+    args.add_argument("--running_times",type=int,default=0)
+    args = args.parse_args()
+    epochs = args.epochs
+    learning_rate = args.learning_rate
+    
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    for running_times in range(5):
-        train("0123", "456", running_times)
-        train("456", "0123", running_times)
-        train("0246", "135", running_times)
-        train("135", "0246", running_times)
+    train("0123", "456", args.running_times)
+    # train("456", "0123", args.running_times)
+    # train("0246", "135", args.running_times)
+    # train("135", "0246", args.running_times)
 
     # from line_profiler import LineProfiler
     # lp = LineProfiler()
@@ -352,5 +358,3 @@ if __name__ == '__main__':
     # lp_wrapper("0123", "456", 0)
     # lp.print_stats()
     
-
-# nohup python DGAD_train_PACS.py > train_PACS_for_DGAD.log 2>&1 &
