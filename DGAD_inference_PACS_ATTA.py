@@ -1,3 +1,5 @@
+import argparse
+import re
 import numpy as np
 from sklearn.metrics import auc, precision_recall_curve
 import torch
@@ -115,11 +117,7 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader,device, type_of_test, img_s
         auprc = auc(recall, precision)
     return auroc_sp, auprc
 
-with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
-    import yaml
-    config = yaml.load(f.read(), Loader=yaml.FullLoader)
-
-def test_PACS(_class_, normal_class, anomaly_class, running_times = 0):
+def test_PACS(_class_, model_name, running_times = 0):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     name_dataset = labels_dict[_class_]
@@ -152,7 +150,7 @@ def test_PACS(_class_, normal_class, anomaly_class, running_times = 0):
     data_OOD_sketch_loader = torch.utils.data.DataLoader(test_data_OOD_sketch, batch_size=1, shuffle=False)
 
     # ckp_path_decoder = './checkpoints/' + 'PACS_DINL_' + name_dataset + '_19.pth'
-    ckp_path_decoder = f'./checkpoints/many-versus-many/test{running_times}/PACS_DINL_{normal_class}_{anomaly_class}_19.pth'
+    ckp_path_decoder = f'./checkpoints/many-versus-many/test{running_times}/{model_name}'
 
     #load model
     encoder, bn = wide_resnet50_2(pretrained=True)
@@ -181,7 +179,7 @@ def test_PACS(_class_, normal_class, anomaly_class, running_times = 0):
                                                img_size=256, lamda=lamda, dataset_name='PACS', _class_=_class_)
     list_results_AUROC.append(auroc_sp)
     list_results_AUPRC.append(auprc)
-    print('Sample Auroc_photo {:.4f}'.format(auroc_sp))
+    print('Sample AUROC_photo {:.4f}'.format(auroc_sp))
     print('Sample AUPRC_photo {:.4f}'.format(auprc))
 
     auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_art_painting_loader, device,
@@ -189,7 +187,7 @@ def test_PACS(_class_, normal_class, anomaly_class, running_times = 0):
                                                img_size=256, lamda=lamda, dataset_name='PACS', _class_=_class_)
     list_results_AUROC.append(auroc_sp)
     list_results_AUPRC.append(auprc)
-    print('Sample Auroc_art {:.4f}'.format(auroc_sp))
+    print('Sample AUROC_art {:.4f}'.format(auroc_sp))
     print('Sample AUPRC_art {:.4f}'.format(auprc))
 
     auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_cartoon_loader, device,
@@ -197,7 +195,7 @@ def test_PACS(_class_, normal_class, anomaly_class, running_times = 0):
                                                img_size=256, lamda=lamda, dataset_name='PACS', _class_=_class_)
     list_results_AUROC.append(auroc_sp)
     list_results_AUPRC.append(auprc)
-    print('Sample Auroc_cartoon {:.4f}'.format(auroc_sp))
+    print('Sample AUROC_cartoon {:.4f}'.format(auroc_sp))
     print('Sample AUPRC_cartoon {:.4f}'.format(auprc))
 
     auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_OOD_sketch_loader, device,
@@ -205,7 +203,7 @@ def test_PACS(_class_, normal_class, anomaly_class, running_times = 0):
                                                img_size=256, lamda=lamda, dataset_name='PACS', _class_=_class_)
     list_results_AUROC.append(auroc_sp)
     list_results_AUPRC.append(auprc)
-    print('Sample Auroc_sketch {:.4f}'.format(auroc_sp))
+    print('Sample AUROC_sketch {:.4f}'.format(auroc_sp))
     print('Sample AUPRC_sketch {:.4f}'.format(auprc))
     print(list_results_AUROC)
     print(list_results_AUPRC)
@@ -213,32 +211,45 @@ def test_PACS(_class_, normal_class, anomaly_class, running_times = 0):
 
     return list_results_AUROC, list_results_AUPRC
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # test_PACS(1)
 
+args = argparse.ArgumentParser()
+args.add_argument("--cnt", default=0, type=int)
+args.add_argument("--gpu", default="0", type=str)
+args = args.parse_args()
+
+os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+running_times = args.cnt
 
 normal_class = None
 anomaly_class = None
 
+normal_class = [0,1,2,3]
+anomaly_class = [4,5,6]
+
 AUROC_results = []
 AUPRC_results = []
-for running_times in range(5):
-    one_auroc_results = []
-    one_auprc_results = []
-    for model_name in sorted(os.listdir(f'checkpoints/many-versus-many/test{running_times}')):
-        splits = model_name.split("_")
-        normal_class = list(map(int, list(splits[2])))
-        anomaly_class = list(map(int, list(splits[3])))
-    
-        auroc, auprc = test_PACS(normal_class[0], "".join((map(str, normal_class))), "".join((map(str, anomaly_class))), running_times)
-        one_auroc_results.append(auroc)
-        one_auprc_results.append(auprc)
-        print('===============================================')
-        print('')
-        print('')
-    AUROC_results.append(one_auroc_results)
-    AUPRC_results.append(one_auprc_results)
+para_results = []
+for model_name in sorted(os.listdir(f'checkpoints/many-versus-many/test{running_times}')):
+    if not ("0123_456" in model_name):
+        continue
+    splits = re.split("_|\.pth", model_name)
+    # normal_class = list(map(int, list(splits[2])))
+    # anomaly_class = list(map(int, list(splits[3])))
+    para = []
+    for item in splits:
+        if "=" in item:
+            para.append(item.split("=")[1])
 
-np.savez("results/many-versus-many-results.npz", AUROC_results = np.array(AUROC_results), AUPRC_results = np.array(AUPRC_results))
+    auroc, auprc = test_PACS(normal_class[0], model_name, running_times)
+    para_results.append(para)
+    AUROC_results.append(auroc)
+    AUPRC_results.append(auprc)
+    print('===============================================')
+    print('')
+    print('')
 
-# nohup python DGAD_inference_PACS_ATTA.py > DGAD_inference_PACS_ATTA.log 2>&1 &
+
+np.savez(f"results/many-versus-many-results-{running_times}.npz", AUROC_results = np.array(AUROC_results), AUPRC_results = np.array(AUPRC_results), para_results = np.array(para_results))
+
+# nohup python DGAD_inference_PACS_ATTA.py --cnt 4 --gpu 0 > DGAD_inference4.log 2>&1 &
