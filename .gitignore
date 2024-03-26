@@ -5,3 +5,4 @@ checkpoints
 analysis
 results
 *.sh
+*.out

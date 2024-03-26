@@ -10,6 +10,8 @@ from resnet import  wide_resnet50_2
 from de_resnet import de_wide_resnet50_2
 from torch.nn import functional as F
 import torchvision.transforms as transforms
+from DGAD_inference_PACS_ATTA import evaluation_ATTA
+from torchvision.datasets import ImageFolder
 
 with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
     import yaml
@@ -62,17 +64,12 @@ def loss_concat(a, b):
     return loss
 
 class PACSDataset(torch.utils.data.Dataset):
-    def __init__(self, root, transform):
-        data = np.load(root)
+    def __init__(self, img_paths, labels, transform):
         
         self.transform = transform
         # load dataset
-        self.img_paths = data["train_set_path"]
-        # for item in in_domain_type:
-        #     for selected_class in os.listdir(f'{config["PACS_root"]}/train/{item}/'):
-        #         if selected_class == normal_class :
-        #             continue
-        #         self.img_paths += glob.glob(f'{config["PACS_root"]}/train/{item}/{selected_class}/*.jpg')
+        self.img_paths = img_paths
+        self.labels = labels
 
     def __len__(self):
         return len(self.img_paths)
@@ -82,7 +79,7 @@ class PACSDataset(torch.utils.data.Dataset):
         img = Image.open(config["PACS_root"] + img_path).convert('RGB')
         img = self.transform(img)
 
-        return img, 0
+        return img, self.labels[idx]
 
 IMAGE_SIZE = 256
 mean_train = [0.485, 0.456, 0.406]
@@ -242,7 +239,47 @@ class AugMixDatasetPACS(torch.utils.data.Dataset):
 
   def __len__(self):
     return len(self.dataset)
-  
+
+def test(encoder, bn, decoder, device, normal_class, lamda, _class_):
+    
+    list_results_AUROC = []
+    list_results_AUPRC = []
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_photo_loader, device,
+                                               type_of_test='EFDM_test',
+                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
+    list_results_AUROC.append(auroc_sp)
+    list_results_AUPRC.append(auprc)
+    print('Sample AUROC_photo {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_photo {:.4f}'.format(auprc))
+
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_art_painting_loader, device,
+                                               type_of_test='EFDM_test',
+                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
+    list_results_AUROC.append(auroc_sp)
+    list_results_AUPRC.append(auprc)
+    print('Sample AUROC_art {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_art {:.4f}'.format(auprc))
+
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_cartoon_loader, device,
+                                               type_of_test='EFDM_test',
+                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
+    list_results_AUROC.append(auroc_sp)
+    list_results_AUPRC.append(auprc)
+    print('Sample AUROC_cartoon {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_cartoon {:.4f}'.format(auprc))
+
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_OOD_sketch_loader, device,
+                                               type_of_test='EFDM_test',
+                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
+    list_results_AUROC.append(auroc_sp)
+    list_results_AUPRC.append(auprc)
+    print('Sample AUROC_sketch {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_sketch {:.4f}'.format(auprc))
+    print(list_results_AUROC)
+    print(list_results_AUPRC)
+
+
+    return list_results_AUROC, list_results_AUPRC
 
 def train(normal_class, anomaly_class, running_times = 0):
     logging.info(normal_class)
@@ -266,13 +303,25 @@ def train(normal_class, anomaly_class, running_times = 0):
                              std=std_train),
     ])
 
-    # train_path = f'{config["PACS_root"]}/train/photo/' +normal_class
-    
-    train_path = f'../domain-generalization-for-anomaly-detection/data/unsupervised/20231218-PACS-{normal_class}-{anomaly_class}.npz'
-    train_data = PACSDataset(root=train_path, transform=resize_transform)
+    # data_path = f'{config["PACS_root"]}/train/photo/' +normal_class
+    if args.domain_cnt == 3:
+        data_path = f'../domain-generalization-for-anomaly-detection/data/three_source_domain/unsupervised/20231228-PACS-{normal_class}-{anomaly_class}.npz'
+    if args.domain_cnt == 1:
+        data_path = f'../domain-generalization-for-anomaly-detection/data/one_source_domain/unsupervised/20231228-PACS-{normal_class}-{anomaly_class}.npz'
+
+    data = np.load(data_path)
+    train_data = PACSDataset(img_paths=data["train_set_path"], labels = data["train_labels"], transform=resize_transform)
     train_data = AugMixDatasetPACS(train_data, preprocess)
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     
+    img_transforms = transforms.Compose([
+        transforms.Resize((image_size, image_size)),
+        transforms.ToTensor(),
+        transforms.CenterCrop(image_size),
+        transforms.Normalize(mean=mean_train,
+                             std=std_train)])
+    val_data = PACSDataset(img_paths=data["val_set_path"], labels = data["val_labels"], transform=img_transforms)
+    val_dataloader = torch.utils.data.DataLoader(val_data, batch_size=1, shuffle=True)
     
     encoder, bn = wide_resnet50_2(pretrained=True)
     encoder = encoder.to(device)
@@ -284,10 +333,25 @@ def train(normal_class, anomaly_class, running_times = 0):
     optimizer = torch.optim.Adam(list(decoder.parameters()) + list(bn.parameters()), lr=learning_rate,
                                  betas=(0.5, 0.999))
 
-    if os.path.exists(f'./checkpoints/many-versus-many/test{running_times}') == False:
-       os.mkdir(f'./checkpoints/many-versus-many/test{running_times}')
+    # if os.path.exists(f'./checkpoints/many-versus-many/test{running_times}') == False:
+    #     os.mkdir(f'./checkpoints/many-versus-many/test{running_times}')
+    if os.path.exists(f'./results{args.results_save_path}') == False:
+        os.mkdir(f'./results{args.results_save_path}')
+    # file_name = f'PACS_DINL_{normal_class}_{anomaly_class}_epochs={epochs}_lr={learning_rate}_cnt={running_times}'
+    # ckp_path = f'./checkpoints/many-versus-many/test{running_times}/{file_name}.pth'
+    
+    import resnet_TTA
+    inference_encoder, _ = resnet_TTA.wide_resnet50_2()
+    inference_encoder.to(device)
 
-
+    _class_ = int(normal_class[0])
+    val_AUROC_list = []
+    val_AUPRC_list = []
+    train_results_loss = []
+    val_max_metric = {"AUROC":-1,
+                      "AUPRC":-1,
+                      "epochs": None}
+    test_results_list = []
     for epoch in range(epochs):
         bn.train()
         decoder.train()
@@ -322,13 +386,52 @@ def train(normal_class, anomaly_class, running_times = 0):
             loss.backward()
             optimizer.step()
             loss_list.append(loss.item())
-
+        
+        train_results_loss.append(loss_list)
         logging.info('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
-    
-    ckp_path = f'./checkpoints/many-versus-many/test{running_times}/PACS_DINL_{normal_class}_{anomaly_class}_epochs={epochs}_lr={learning_rate}_cnt={running_times}.pth'
-    torch.save({'bn': bn.state_dict(),
-                'decoder': decoder.state_dict()}, ckp_path)
 
+        lamda = 0.5
+            
+        inference_encoder.load_state_dict(encoder.state_dict())
+        inference_encoder.eval()
+        auroc, auprc = evaluation_ATTA(inference_encoder, bn, decoder, val_dataloader, device,
+                                                type_of_test='EFDM_test',
+                                                img_size=256, normal_class=normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_, validation=True)
+        val_AUROC_list.append(auroc)
+        val_AUPRC_list.append(auprc)
+        print('Sample AUROC_photo {:.4f}'.format(auroc))
+        print('Sample AUPRC_photo {:.4f}'.format(auprc))
+
+        test_AUROC, test_AUPRC = test(inference_encoder, bn, decoder, device, normal_class, lamda, _class_)
+        test_metric = {}
+        for idx, key in enumerate(["photo", "art_painting", "cartoon", "sketch"]):
+            test_metric[key] = {
+               "AUROC": test_AUROC[idx],
+               "AUPRC": test_AUPRC[idx]
+            }
+        
+        test_results_list.append(test_metric)
+           
+
+        if val_max_metric["AUROC"] < auroc:
+           val_max_metric["AUROC"] = auroc
+           val_max_metric["AUPRC"] = auprc
+           val_max_metric["epochs"] = epoch
+        #    torch.save({'bn': bn.state_dict(),
+        #                'decoder': decoder.state_dict()}, ckp_path)
+        
+    print(val_AUROC_list)
+    print(val_AUPRC_list)
+    
+    file_name = f'domain_cnt={args.domain_cnt},normal_class={normal_class},learning_rate={args.learning_rate},epochs={args.epochs},cnt={running_times}'
+    
+    np.savez(f'./results{args.results_save_path}/{file_name}.npz',
+             val_AUROC_list = np.array(val_AUROC_list),
+             val_AUPRC_list = np.array(val_AUPRC_list),
+             train_results_loss = np.array(train_results_loss),
+             val_max_metric = np.array(val_max_metric),
+             test_results_list = np.array(test_results_list),
+             args = np.array(args.__dict__),)
     return
 
 
@@ -340,13 +443,39 @@ if __name__ == '__main__':
     args.add_argument("--learning_rate",type=float,default=0.005)
     args.add_argument("--gpu",type=str,default="0")
     args.add_argument("--running_times",type=int,default=0)
+    args.add_argument("--results_save_path",type=str,default="/DEBUG")
+    args.add_argument("--domain_cnt",type=int,default=3)
     args = args.parse_args()
+    # args = args.parse_args(["--epochs", "2", "--results_save_path", "/3domain", "--gpu", "3"])
     epochs = args.epochs
     learning_rate = args.learning_rate
     
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    train("0123", "456", args.running_times)
+    img_transforms = transforms.Compose([
+        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.ToTensor(),
+        transforms.CenterCrop(IMAGE_SIZE),
+        transforms.Normalize(mean=mean_train,
+                             std=std_train)])
+    
+    test_path_ID_photo = f'{config["PACS_root"]}/test/photo/' #update here
+    test_path_ID_art_painting = f'{config["PACS_root"]}/test/art_painting/' #update here
+    test_path_ID_cartoon = f'{config["PACS_root"]}/test/cartoon/' #update here
+    test_path_OOD_sketch = f'{config["PACS_root"]}/test/sketch/' #update here
+
+    test_data_ID_photo = ImageFolder(root=test_path_ID_photo, transform=img_transforms)
+    test_data_ID_art_painting = ImageFolder(root=test_path_ID_art_painting, transform=img_transforms)
+    test_data_ID_cartoon = ImageFolder(root=test_path_ID_cartoon, transform=img_transforms)
+    test_data_OOD_sketch = ImageFolder(root=test_path_OOD_sketch, transform=img_transforms)
+
+    data_ID_photo_loader = torch.utils.data.DataLoader(test_data_ID_photo, batch_size=1, shuffle=False)
+    data_ID_art_painting_loader = torch.utils.data.DataLoader(test_data_ID_art_painting, batch_size=1, shuffle=False)
+    data_ID_cartoon_loader = torch.utils.data.DataLoader(test_data_ID_cartoon, batch_size=1, shuffle=False)
+    data_OOD_sketch_loader = torch.utils.data.DataLoader(test_data_OOD_sketch, batch_size=1, shuffle=False)
+
+    train("0", "123456", args.running_times)
+    # train("0123", "456", args.running_times)
     # train("456", "0123", args.running_times)
     # train("0246", "135", args.running_times)
     # train("135", "0246", args.running_times)
