@@ -1,3 +1,7 @@
+import torchvision.transforms as T
+from scipy.ndimage import gaussian_filter
+from os import listdir
+from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
 import argparse
 import random
 from PIL import Image, ImageOps, ImageEnhance
@@ -10,13 +14,100 @@ from resnet import  wide_resnet50_2
 from de_resnet import de_wide_resnet50_2
 from torch.nn import functional as F
 import torchvision.transforms as transforms
-from DGAD_inference_PACS_ATTA import evaluation_ATTA
 from torchvision.datasets import ImageFolder
 from collections import Counter
 
 with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
     import yaml
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
+
+domain_list = ["origin", "brightness", "contrast", "defocus_blur", "gaussian_noise"]
+
+def cal_anomaly_map(fs_list, ft_list, out_size=224, amap_mode='mul'):
+    if amap_mode == 'mul':
+        anomaly_map = np.ones([out_size, out_size])
+    else:
+        anomaly_map = np.zeros([out_size, out_size])
+    a_map_list = []
+    for i in range(len(ft_list)):
+        fs = fs_list[i]
+        ft = ft_list[i]
+        a_map = 1 - F.cosine_similarity(fs, ft)
+        a_map = torch.unsqueeze(a_map, dim=1)
+        a_map = F.interpolate(a_map, size=out_size, mode='bilinear', align_corners=True)
+        a_map = a_map[0, 0, :, :].to('cpu').detach().numpy()
+        a_map_list.append(a_map)
+        if amap_mode == 'mul':
+            anomaly_map *= a_map
+        else:
+            anomaly_map += a_map
+    return anomaly_map, a_map_list
+
+def evaluation_ATTA(encoder, bn, decoder, dataloader, device, type_of_test, img_size, checkitew, lamda=0.5, dataset_name='mnist', _class_=None, validation = False):
+    bn.eval()
+    decoder.eval()
+    gt_list_sp = []
+    pr_list_sp = []
+
+    # if dataset_name == 'mnist':
+    #     link_to_normal_sample = f'{config["mnist_grey_root"]}/training/' + str(_class_) #update the link here
+    #     filenames = [f for f in listdir(link_to_normal_sample)]
+    #     filenames.sort()
+    #     link_to_normal_sample = f'{config["mnist_grey_root"]}/training/' + str(_class_) + '/' + filenames[0] #update the link here
+    #     normal_image = Image.open(link_to_normal_sample).convert("RGB")
+
+
+    if dataset_name == 'mvtec' or dataset_name == 'MVTEC':
+        link_to_normal_sample = f'{config["mvtec_ood_root"]}/mvtec_origin/{checkitew}/train/good/000.png' #update the link here
+        normal_image = Image.open(link_to_normal_sample).convert("RGB")
+
+    # if dataset_name == 'PACS':
+    #     link_to_normal_sample = f'{config["PACS_root"]}/train/photo/' + labels_dict[_class_] #update the link here
+    #     filenames = [f for f in listdir(link_to_normal_sample)]
+    #     filenames.sort()
+    #     link_to_normal_sample = f'{config["PACS_root"]}/train/photo/' + labels_dict[_class_] + '/' + filenames[0] #update the link here
+    #     normal_image = Image.open(link_to_normal_sample).convert("RGB")
+
+    if dataset_name != 'mnist':
+        mean_train = [0.485, 0.456, 0.406]
+        std_train = [0.229, 0.224, 0.225]
+        trans = T.Compose([
+            T.Resize((img_size, img_size)),
+            T.ToTensor(),
+            transforms.Normalize(mean=mean_train,
+                                 std=std_train)
+        ])
+    else:
+        trans = T.Compose([
+            T.Resize((img_size, img_size)),
+            T.ToTensor(),
+        ])
+
+    normal_image = trans(normal_image)
+    normal_image = torch.unsqueeze(normal_image, 0)
+
+
+
+    with torch.no_grad():
+        for sample in dataloader:
+            img, label = sample[0], sample[1]
+
+            if img.shape[1] == 1:
+                img = img.repeat(1, 3, 1, 1)
+
+            normal_image = normal_image.to(device)
+            img = img.to(device)
+            inputs = encoder(img, normal_image, type_of_test, lamda=lamda)
+            outputs = decoder(bn(inputs))
+            anomaly_map, _ = cal_anomaly_map(inputs, outputs, img.shape[-1], amap_mode='a')
+            anomaly_map = gaussian_filter(anomaly_map, sigma=4)
+
+            gt_list_sp.append(int(label))
+            pr_list_sp.append(np.max(anomaly_map))
+        auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 4)
+        precision, recall, threshold = precision_recall_curve(gt_list_sp, pr_list_sp)
+        auprc = auc(recall, precision)
+    return auroc_sp, auprc
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -64,7 +155,7 @@ def loss_concat(a, b):
     loss += torch.mean(1 - cos_loss(a_map, b_map))
     return loss
 
-class PACSDataset(torch.utils.data.Dataset):
+class MVTECDataset(torch.utils.data.Dataset):
     def __init__(self, img_paths, labels, transform):
         
         self.transform = transform
@@ -77,7 +168,7 @@ class PACSDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         img_path= self.img_paths[idx]
-        img = Image.open(config["PACS_root"] + img_path).convert('RGB')
+        img = Image.open(config["mvtec_ood_root"] + img_path).convert('RGB')
         img = self.transform(img)
 
         return img, self.labels[idx]
@@ -198,11 +289,12 @@ def sharpness(pil_img, level):
     level = float_parameter(sample_level(level), 1.8) + 0.1
     return ImageEnhance.Sharpness(pil_img).enhance(level)
 
-
-def augpacs(image, preprocess, severity=3, width=3, depth=-1, alpha=1.):
+def augmvtec(image, preprocess, severity=3, width=3, depth=-1, alpha=1.):
   aug_list = [
-      autocontrast, equalize, posterize, solarize, color, contrast, brightness, sharpness
+      autocontrast, equalize, posterize, solarize, color, sharpness
   ]
+
+
   severity = random.randint(0, severity)
 
   ws = np.float32(np.random.dirichlet([1] * width))
@@ -222,7 +314,7 @@ def augpacs(image, preprocess, severity=3, width=3, depth=-1, alpha=1.):
   mixed = (1 - m) * preprocess_img + m * mix
   return mixed
 
-class AugMixDatasetPACS(torch.utils.data.Dataset):
+class AugMixDatasetMVTec(torch.utils.data.Dataset):
   """Dataset wrapper to perform AugMix augmentation."""
 
   def __init__(self, dataset, preprocess):
@@ -236,62 +328,37 @@ class AugMixDatasetPACS(torch.utils.data.Dataset):
     ])
   def __getitem__(self, i):
     x, _ = self.dataset[i]
-    return self.preprocess(x), augpacs(x, self.preprocess), self.gray_preprocess(x)
+    return self.preprocess(x), augmvtec(x, self.preprocess), self.gray_preprocess(x)
 
   def __len__(self):
     return len(self.dataset)
 
-def test(encoder, bn, decoder, device, normal_class, lamda, _class_):
+def test(encoder, bn, decoder, device, checkitew, lamda):
     
     list_results_AUROC = []
     list_results_AUPRC = []
-    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_photo_loader, device,
-                                               type_of_test='EFDM_test',
-                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
-    list_results_AUROC.append(auroc_sp)
-    list_results_AUPRC.append(auprc)
-    print('Sample AUROC_photo {:.4f}'.format(auroc_sp))
-    print('Sample AUPRC_photo {:.4f}'.format(auprc))
 
-    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_art_painting_loader, device,
+    for domain in domain_list:
+      test_data_dict[f"test_{domain}"]
+      auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, test_data_dict[f"test_{domain}"], device,
                                                type_of_test='EFDM_test',
-                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
-    list_results_AUROC.append(auroc_sp)
-    list_results_AUPRC.append(auprc)
-    print('Sample AUROC_art {:.4f}'.format(auroc_sp))
-    print('Sample AUPRC_art {:.4f}'.format(auprc))
-
-    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_cartoon_loader, device,
-                                               type_of_test='EFDM_test',
-                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
-    list_results_AUROC.append(auroc_sp)
-    list_results_AUPRC.append(auprc)
-    print('Sample AUROC_cartoon {:.4f}'.format(auroc_sp))
-    print('Sample AUPRC_cartoon {:.4f}'.format(auprc))
-
-    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_OOD_sketch_loader, device,
-                                               type_of_test='EFDM_test',
-                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
-    list_results_AUROC.append(auroc_sp)
-    list_results_AUPRC.append(auprc)
-    print('Sample AUROC_sketch {:.4f}'.format(auroc_sp))
-    print('Sample AUPRC_sketch {:.4f}'.format(auprc))
-    print(list_results_AUROC)
-    print(list_results_AUPRC)
-
+                                               img_size=256, checkitew = checkitew, lamda=lamda, dataset_name='MVTEC')
+      list_results_AUROC.append(auroc_sp)
+      list_results_AUPRC.append(auprc)
+      print(f'Sample AUROC_{domain} {round(auroc_sp, 4)}')
+      print(f'Sample AUPRC_{domain} {round(auprc, 4)}')
 
     return list_results_AUROC, list_results_AUPRC
 
-def train(normal_class, anomaly_class, running_times = 0):
-    logging.info(normal_class)
+def train(args):
+    checkitew = args.checkitew
+    running_times = args.running_times
+    logging.info(checkitew)
     batch_size = 16
     image_size = 256
 
-    labels_dict = config["PACS_class_to_idx"]
-
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     logging.info(device)
-
 
     resize_transform = transforms.Compose([
         transforms.Resize((image_size, image_size)),
@@ -304,20 +371,14 @@ def train(normal_class, anomaly_class, running_times = 0):
                              std=std_train),
     ])
 
-    if args.domain_cnt == 3:
-        data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
+    if args.domain_cnt == 4:
+        data_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/unsupervised/4domain/20240412-MVTEC-{checkitew}.npz'
     if args.domain_cnt == 1:
-        data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/1domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
-    
-    if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
-        pass
-    else:
-        if args.domain_cnt == 3:
-            data_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
+        data_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/unsupervised/1domain/20240412-MVTEC-{checkitew}.npz'
 
     data = np.load(data_path)
-    train_data = PACSDataset(img_paths=data["train_set_path"], labels = data["train_labels"], transform=resize_transform)
-    train_data = AugMixDatasetPACS(train_data, preprocess)
+    train_data = MVTECDataset(img_paths=data["train_set_path"], labels = data["train_labels"], transform=resize_transform)
+    train_data = AugMixDatasetMVTec(train_data, preprocess)
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     logging.info(f'train_labels: {Counter(data["train_labels"])}')
     
@@ -328,27 +389,17 @@ def train(normal_class, anomaly_class, running_times = 0):
         transforms.Normalize(mean=mean_train,
                              std=std_train)])
     
-    val_data = PACSDataset(img_paths=data["val_set_path"], labels = data["val_labels"], transform=img_transforms)
+    val_data = MVTECDataset(img_paths=data["val_set_path"], labels = data["val_labels"], transform=img_transforms)
     val_dataloader = torch.utils.data.DataLoader(val_data, batch_size=1, shuffle=True)
     logging.info(f'val_labels: {Counter(data["val_labels"])}')
-    
-    
-    test_data_ID_photo = PACSDataset(data["test_photo"], data["test_photo_labels"], transform=img_transforms)
-    test_data_ID_art_painting = PACSDataset(data["test_art_painting"], data["test_art_painting_labels"], transform=img_transforms)
-    test_data_ID_cartoon = PACSDataset(data["test_cartoon"], data["test_cartoon_labels"], transform=img_transforms)
-    test_data_OOD_sketch = PACSDataset(data["test_sketch"], data["test_sketch_labels"], transform=img_transforms)
-    
-    logging.info(f'test_photo_labels: {Counter(data["test_photo_labels"])}')
-    logging.info(f'test_art_painting_labels: {Counter(data["test_art_painting_labels"])}')
-    logging.info(f'test_cartoon_labels: {Counter(data["test_cartoon_labels"])}')
-    logging.info(f'test_sketch_labels: {Counter(data["test_sketch_labels"])}')
 
-    global data_ID_photo_loader, data_ID_art_painting_loader, data_ID_cartoon_loader, data_OOD_sketch_loader
-    
-    data_ID_photo_loader = torch.utils.data.DataLoader(test_data_ID_photo, batch_size = 1, shuffle = False)
-    data_ID_art_painting_loader = torch.utils.data.DataLoader(test_data_ID_art_painting, batch_size = 1, shuffle = False)
-    data_ID_cartoon_loader = torch.utils.data.DataLoader(test_data_ID_cartoon, batch_size = 1, shuffle = False)
-    data_OOD_sketch_loader = torch.utils.data.DataLoader(test_data_OOD_sketch, batch_size = 1, shuffle = False)
+    global test_data_dict
+
+    test_data_dict = dict()
+    for domain in domain_list:
+        tmp = MVTECDataset(data[f"test_{domain}"], data[f"test_{domain}_labels"], transform=img_transforms)
+        test_data_dict[f"test_{domain}"] = torch.utils.data.DataLoader(tmp, batch_size = 1, shuffle = False)
+        logging.info(f'test_{domain}_labels: {Counter(data[f"test_{domain}_labels"])}')
     
     encoder, bn = wide_resnet50_2(pretrained=True)
     encoder = encoder.to(device)
@@ -360,7 +411,7 @@ def train(normal_class, anomaly_class, running_times = 0):
     optimizer = torch.optim.Adam(list(decoder.parameters()) + list(bn.parameters()), lr=learning_rate,
                                  betas=(0.5, 0.999))
 
-    file_name = f'domain_cnt={args.domain_cnt},normal_class={args.normal_class},learning_rate={args.learning_rate},epochs={args.epochs},cnt={running_times}'
+    file_name = f'domain_cnt={args.domain_cnt},checkitew={args.checkitew},learning_rate={args.learning_rate},epochs={args.epochs},cnt={running_times}'
     if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
         pass
     else:
@@ -375,14 +426,13 @@ def train(normal_class, anomaly_class, running_times = 0):
     
     if os.path.exists(f'./experiment{args.results_save_path}') == False:
         os.makedirs(f'./experiment{args.results_save_path}')
-    # file_name = f'PACS_DINL_{normal_class}_{anomaly_class}_epochs={epochs}_lr={learning_rate}_cnt={running_times}'
+    # file_name = f'MVTEC_DINL_{normal_class}_{anomaly_class}_epochs={epochs}_lr={learning_rate}_cnt={running_times}'
     # ckp_path = f'./checkpoints/many-versus-many/test{running_times}/{file_name}.pth'
     
     import resnet_TTA
     inference_encoder, _ = resnet_TTA.wide_resnet50_2()
     inference_encoder.to(device)
 
-    _class_ = int(normal_class[0])
     val_AUROC_list = []
     val_AUPRC_list = []
     train_results_loss = []
@@ -434,11 +484,11 @@ def train(normal_class, anomaly_class, running_times = 0):
         inference_encoder.eval()
         auroc, auprc = evaluation_ATTA(inference_encoder, bn, decoder, val_dataloader, device,
                                                 type_of_test='EFDM_test',
-                                                img_size=256, normal_class=normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_, validation=True)
+                                                img_size=256, checkitew=checkitew, lamda=lamda, dataset_name='MVTEC', validation=True)
         val_AUROC_list.append(auroc)
         val_AUPRC_list.append(auprc)
-        print('Sample AUROC_photo {:.4f}'.format(auroc))
-        print('Sample AUPRC_photo {:.4f}'.format(auprc))
+        print('Sample AUROC_val {:.4f}'.format(auroc))
+        print('Sample AUPRC_val {:.4f}'.format(auprc))
 
         if val_max_metric["AUPRC"] < auprc:
            val_max_metric["AUROC"] = auroc
@@ -454,9 +504,9 @@ def train(normal_class, anomaly_class, running_times = 0):
     bn.load_state_dict(weight_dict["bn"])
     decoder.load_state_dict(weight_dict["decoder"])
     inference_encoder.eval()
-    test_AUROC, test_AUPRC = test(inference_encoder, bn, decoder, device, normal_class, lamda, _class_)
+    test_AUROC, test_AUPRC = test(inference_encoder, bn, decoder, device, checkitew, lamda)
     test_metric = {"epochs": val_max_metric["epochs"]}
-    for idx, key in enumerate(["photo", "art_painting", "cartoon", "sketch"]):
+    for idx, key in enumerate(domain_list):
         test_metric[key] = {
             "AUROC": test_AUROC[idx],
             "AUPRC": test_AUPRC[idx]
@@ -484,56 +534,15 @@ if __name__ == '__main__':
     args.add_argument("--epochs",type=int,default=2)
     args.add_argument("--contamination_rate", type=float ,default=0)
     args.add_argument("--learning_rate",type=float,default=0.005)
-    args.add_argument("--gpu",type=str,default="2")
+    args.add_argument("--gpu",type=str,default="3")
     args.add_argument("--running_times",type=int,default=0)
     args.add_argument("--results_save_path",type=str,default="/DEBUG")
-    args.add_argument("--domain_cnt",type=int,default=3)
-    args.add_argument("--normal_class", nargs="+", type=int, default=[0])
+    args.add_argument("--domain_cnt", type=int,default=4)
+    args.add_argument("--checkitew", type=str, default="bottle")
     args = args.parse_args()
-    # args = args.parse_args(["--epochs", "2", "--results_save_path", "/3domain", "--gpu", "3"])
     epochs = args.epochs
     learning_rate = args.learning_rate
     
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    # img_transforms = transforms.Compose([
-    #     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-    #     transforms.ToTensor(),
-    #     transforms.CenterCrop(IMAGE_SIZE),
-    #     transforms.Normalize(mean=mean_train,
-    #                          std=std_train)])
-    
-    # test_path_ID_photo = f'{config["PACS_root"]}/test/photo/' #update here
-    # test_path_ID_art_painting = f'{config["PACS_root"]}/test/art_painting/' #update here
-    # test_path_ID_cartoon = f'{config["PACS_root"]}/test/cartoon/' #update here
-    # test_path_OOD_sketch = f'{config["PACS_root"]}/test/sketch/' #update here
-
-    # test_data_ID_photo = ImageFolder(root=test_path_ID_photo, transform=img_transforms)
-    # test_data_ID_art_painting = ImageFolder(root=test_path_ID_art_painting, transform=img_transforms)
-    # test_data_ID_cartoon = ImageFolder(root=test_path_ID_cartoon, transform=img_transforms)
-    # test_data_OOD_sketch = ImageFolder(root=test_path_OOD_sketch, transform=img_transforms)
-
-    # data_ID_photo_loader = torch.utils.data.DataLoader(test_data_ID_photo, batch_size=1, shuffle=False)
-    # data_ID_art_painting_loader = torch.utils.data.DataLoader(test_data_ID_art_painting, batch_size=1, shuffle=False)
-    # data_ID_cartoon_loader = torch.utils.data.DataLoader(test_data_ID_cartoon, batch_size=1, shuffle=False)
-    # data_OOD_sketch_loader = torch.utils.data.DataLoader(test_data_OOD_sketch, batch_size=1, shuffle=False)
-    
-    normal_class = str(args.normal_class[0])
-    anomaly_class = "".join(map(str,(set([0,1,2,3,4,5,6]) - set(args.normal_class))))
-    print("normal_class", normal_class)
-    print("anomaly_class", anomaly_class)
-    
-    train(normal_class, anomaly_class, args.running_times)
-    
-    # train("0123", "456", args.running_times)
-    # train("456", "0123", args.running_times)
-    # train("0246", "135", args.running_times)
-    # train("135", "0246", args.running_times)
-
-    # from line_profiler import LineProfiler
-    # lp = LineProfiler()
-    # lp.add_function(augpacs)
-    # lp_wrapper  = lp(train)
-    # lp_wrapper("0123", "456", 0)
-    # lp.print_stats()
-    
+    train(args)

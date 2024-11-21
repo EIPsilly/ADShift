@@ -6,3 +6,6 @@ analysis
 results
 *.sh
 *.out
+old_results
+experiment
+0417results

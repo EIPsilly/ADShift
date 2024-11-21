@@ -1,4 +1,5 @@
 import argparse
+import re
 import random
 from PIL import Image, ImageOps, ImageEnhance
 import glob
@@ -308,12 +309,6 @@ def train(normal_class, anomaly_class, running_times = 0):
         data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
     if args.domain_cnt == 1:
         data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/1domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
-    
-    if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
-        pass
-    else:
-        if args.domain_cnt == 3:
-            data_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
 
     data = np.load(data_path)
     train_data = PACSDataset(img_paths=data["train_set_path"], labels = data["train_labels"], transform=resize_transform)
@@ -361,20 +356,12 @@ def train(normal_class, anomaly_class, running_times = 0):
                                  betas=(0.5, 0.999))
 
     file_name = f'domain_cnt={args.domain_cnt},normal_class={args.normal_class},learning_rate={args.learning_rate},epochs={args.epochs},cnt={running_times}'
-    if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
-        pass
-    else:
-        if args.domain_cnt == 3:
-            file_name += f",contamination={args.contamination_rate}"
     print(file_name)
 
     # if os.path.exists(f'./checkpoints/many-versus-many/test{running_times}') == False:
     #     os.mkdir(f'./checkpoints/many-versus-many/test{running_times}')
-    if os.path.exists(f'./results{args.results_save_path}') == False:
-        os.mkdir(f'./results{args.results_save_path}')
-    
-    if os.path.exists(f'./experiment{args.results_save_path}') == False:
-        os.makedirs(f'./experiment{args.results_save_path}')
+    if os.path.exists(f'./0417results{args.results_save_path}') == False:
+        os.mkdir(f'./0417results{args.results_save_path}')
     # file_name = f'PACS_DINL_{normal_class}_{anomaly_class}_epochs={epochs}_lr={learning_rate}_cnt={running_times}'
     # ckp_path = f'./checkpoints/many-versus-many/test{running_times}/{file_name}.pth'
     
@@ -390,64 +377,7 @@ def train(normal_class, anomaly_class, running_times = 0):
                       "AUPRC":-1,
                       "epochs": None}
     test_results_list = []
-    for epoch in range(epochs):
-        bn.train()
-        decoder.train()
-        loss_list = []
-        for normal, augmix_img, gray_img in train_dataloader:
-            normal = normal.to(device)  # (3,256,256)
-            inputs_normal = encoder(normal) # [(256,64,64), (512,32,32), (1024,16,16)]
-            bn_normal = bn(inputs_normal) # (2048,8,8)
-            outputs_normal = decoder(bn_normal)  # [(256,64,64), (512,32,32), (1024,16,16)]
-
-
-            augmix_img = augmix_img.to(device) # (3,256,256)
-            inputs_augmix = encoder(augmix_img) # [(256,64,64), (512,32,32), (1024,16,16)]
-            bn_augmix = bn(inputs_augmix) # (2048,8,8)
-            outputs_augmix = decoder(bn_augmix) # [(256,64,64), (512,32,32), (1024,16,16)]
-
-            gray_img = gray_img.to(device) # (3,256,256)
-            inputs_gray = encoder(gray_img)
-            bn_gray = bn(inputs_gray)
-            outputs_gray = decoder(bn_gray)
-
-            # 对应论文的 L_abs
-            loss_bn = loss_fucntion([bn_normal], [bn_augmix]) + loss_fucntion([bn_normal], [bn_gray])
-
-            # 对应论文的 L_lowf
-            loss_last = loss_fucntion_last(outputs_normal, outputs_augmix) + loss_fucntion_last(outputs_normal, outputs_gray)
-            # 对应论文的 L_ori
-            loss_normal = loss_fucntion(inputs_normal, outputs_normal)
-            loss = loss_normal*0.9 + loss_bn*0.05 + loss_last*0.05
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            loss_list.append(loss.item())
-        
-        train_results_loss.append(loss_list)
-        logging.info('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
-
-        lamda = 0.5
-            
-        inference_encoder.load_state_dict(encoder.state_dict())
-        inference_encoder.eval()
-        auroc, auprc = evaluation_ATTA(inference_encoder, bn, decoder, val_dataloader, device,
-                                                type_of_test='EFDM_test',
-                                                img_size=256, normal_class=normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_, validation=True)
-        val_AUROC_list.append(auroc)
-        val_AUPRC_list.append(auprc)
-        print('Sample AUROC_photo {:.4f}'.format(auroc))
-        print('Sample AUPRC_photo {:.4f}'.format(auprc))
-
-        if val_max_metric["AUPRC"] < auprc:
-           val_max_metric["AUROC"] = auroc
-           val_max_metric["AUPRC"] = auprc
-           val_max_metric["epochs"] = epoch
-           torch.save({"encoder": encoder.state_dict(),
-                       'bn': bn.state_dict(),
-                       'decoder': decoder.state_dict()}, f'./experiment{args.results_save_path}/{file_name}.pt')
-    
+    lamda = 0.5
 
     weight_dict = torch.load(f'./experiment{args.results_save_path}/{file_name}.pt')
     inference_encoder.load_state_dict(weight_dict["encoder"])
@@ -455,7 +385,7 @@ def train(normal_class, anomaly_class, running_times = 0):
     decoder.load_state_dict(weight_dict["decoder"])
     inference_encoder.eval()
     test_AUROC, test_AUPRC = test(inference_encoder, bn, decoder, device, normal_class, lamda, _class_)
-    test_metric = {"epochs": val_max_metric["epochs"]}
+    test_metric = {}
     for idx, key in enumerate(["photo", "art_painting", "cartoon", "sketch"]):
         test_metric[key] = {
             "AUROC": test_AUROC[idx],
@@ -467,7 +397,7 @@ def train(normal_class, anomaly_class, running_times = 0):
     print(val_AUROC_list)
     print(val_AUPRC_list)
     
-    np.savez(f'./results{args.results_save_path}/{file_name}.npz',
+    np.savez(f'./0417results{args.results_save_path}/{file_name}.npz',
              val_AUROC_list = np.array(val_AUROC_list),
              val_AUPRC_list = np.array(val_AUPRC_list),
              train_results_loss = np.array(train_results_loss),
@@ -482,13 +412,12 @@ if __name__ == '__main__':
     logging.getLogger().setLevel(logging.INFO)
     args = argparse.ArgumentParser()
     args.add_argument("--epochs",type=int,default=2)
-    args.add_argument("--contamination_rate", type=float ,default=0)
     args.add_argument("--learning_rate",type=float,default=0.005)
-    args.add_argument("--gpu",type=str,default="2")
+    args.add_argument("--gpu",type=str,default="0")
     args.add_argument("--running_times",type=int,default=0)
-    args.add_argument("--results_save_path",type=str,default="/DEBUG")
+    args.add_argument("--results_save_path",type=str,default="/3domain_results")
     args.add_argument("--domain_cnt",type=int,default=3)
-    args.add_argument("--normal_class", nargs="+", type=int, default=[0])
+    args.add_argument("--normal_class", nargs="+", type=int, default=[2])
     args = args.parse_args()
     # args = args.parse_args(["--epochs", "2", "--results_save_path", "/3domain", "--gpu", "3"])
     epochs = args.epochs
@@ -496,34 +425,26 @@ if __name__ == '__main__':
     
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    # img_transforms = transforms.Compose([
-    #     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-    #     transforms.ToTensor(),
-    #     transforms.CenterCrop(IMAGE_SIZE),
-    #     transforms.Normalize(mean=mean_train,
-    #                          std=std_train)])
+    for file_name in os.listdir("experiment/3domain_results"):
+    #    file_name = "domain_cnt=3,normal_class=[0],learning_rate=0.01,epochs=10,cnt=0.pt"
+        # re.split(",", ) 
+        for item in file_name.replace(".pt", "").split(","):
+            key, value = item.split("=")
+            if key == "learning_rate":
+                args.learning_rate = float(value)
+            elif key == "epochs":
+                args.epochs = int(value)
+            elif key == "cnt":
+                args.cnt = int(value)
+            elif key == "normal_class":
+                args.normal_class = [int(value[1])]
     
-    # test_path_ID_photo = f'{config["PACS_root"]}/test/photo/' #update here
-    # test_path_ID_art_painting = f'{config["PACS_root"]}/test/art_painting/' #update here
-    # test_path_ID_cartoon = f'{config["PACS_root"]}/test/cartoon/' #update here
-    # test_path_OOD_sketch = f'{config["PACS_root"]}/test/sketch/' #update here
-
-    # test_data_ID_photo = ImageFolder(root=test_path_ID_photo, transform=img_transforms)
-    # test_data_ID_art_painting = ImageFolder(root=test_path_ID_art_painting, transform=img_transforms)
-    # test_data_ID_cartoon = ImageFolder(root=test_path_ID_cartoon, transform=img_transforms)
-    # test_data_OOD_sketch = ImageFolder(root=test_path_OOD_sketch, transform=img_transforms)
-
-    # data_ID_photo_loader = torch.utils.data.DataLoader(test_data_ID_photo, batch_size=1, shuffle=False)
-    # data_ID_art_painting_loader = torch.utils.data.DataLoader(test_data_ID_art_painting, batch_size=1, shuffle=False)
-    # data_ID_cartoon_loader = torch.utils.data.DataLoader(test_data_ID_cartoon, batch_size=1, shuffle=False)
-    # data_OOD_sketch_loader = torch.utils.data.DataLoader(test_data_OOD_sketch, batch_size=1, shuffle=False)
+        normal_class = str(args.normal_class[0])
+        anomaly_class = "".join(map(str,(set([0,1,2,3,4,5,6]) - set(args.normal_class))))
+        print("normal_class", normal_class)
+        print("anomaly_class", anomaly_class)
     
-    normal_class = str(args.normal_class[0])
-    anomaly_class = "".join(map(str,(set([0,1,2,3,4,5,6]) - set(args.normal_class))))
-    print("normal_class", normal_class)
-    print("anomaly_class", anomaly_class)
-    
-    train(normal_class, anomaly_class, args.running_times)
+        train(normal_class, anomaly_class, args.running_times)
     
     # train("0123", "456", args.running_times)
     # train("456", "0123", args.running_times)

@@ -92,7 +92,7 @@ def test_mvtec(_class_):
     return
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 item_list = ['carpet', 'leather', 'grid', 'tile', 'wood', 'bottle', 'hazelnut', 'cable', 'capsule',
              'pill', 'transistor', 'metal_nut', 'screw', 'toothbrush', 'zipper']
