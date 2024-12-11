@@ -49,24 +49,14 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader, device, type_of_test, img_
     gt_list_sp = []
     pr_list_sp = []
 
-    # if dataset_name == 'mnist':
-    #     link_to_normal_sample = f'{config["mnist_grey_root"]}/training/' + str(_class_) #update the link here
-    #     filenames = [f for f in listdir(link_to_normal_sample)]
-    #     filenames.sort()
-    #     link_to_normal_sample = f'{config["mnist_grey_root"]}/training/' + str(_class_) + '/' + filenames[0] #update the link here
-    #     normal_image = Image.open(link_to_normal_sample).convert("RGB")
-
-
     if dataset_name == 'mvtec' or dataset_name == 'MVTEC':
-        link_to_normal_sample = f'{config["mvtec_ood_root"]}/mvtec_origin/{checkitew}/train/good/000.png' #update the link here
+        img_path = np.random.choice(data["train_set_path"], 1)
+        if args.severity == 3:
+          link_to_normal_sample = config["mvtec_ood_root"]
+        else:
+          link_to_normal_sample = config[f"mvtec_ood_root_severity{args.severity}"]
+        link_to_normal_sample += img_path.item() #update the link here
         normal_image = Image.open(link_to_normal_sample).convert("RGB")
-
-    # if dataset_name == 'PACS':
-    #     link_to_normal_sample = f'{config["PACS_root"]}/train/photo/' + labels_dict[_class_] #update the link here
-    #     filenames = [f for f in listdir(link_to_normal_sample)]
-    #     filenames.sort()
-    #     link_to_normal_sample = f'{config["PACS_root"]}/train/photo/' + labels_dict[_class_] + '/' + filenames[0] #update the link here
-    #     normal_image = Image.open(link_to_normal_sample).convert("RGB")
 
     if dataset_name != 'mnist':
         mean_train = [0.485, 0.456, 0.406]
@@ -85,8 +75,6 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader, device, type_of_test, img_
 
     normal_image = trans(normal_image)
     normal_image = torch.unsqueeze(normal_image, 0)
-
-
 
     with torch.no_grad():
         for sample in dataloader:
@@ -162,13 +150,17 @@ class MVTECDataset(torch.utils.data.Dataset):
         # load dataset
         self.img_paths = img_paths
         self.labels = labels
+        if args.severity == 3:
+          self.img_dir_paths = config["mvtec_ood_root"]
+        else:
+          self.img_dir_paths = config[f"mvtec_ood_root_severity{args.severity}"]
 
     def __len__(self):
         return len(self.img_paths)
 
     def __getitem__(self, idx):
         img_path= self.img_paths[idx]
-        img = Image.open(config["mvtec_ood_root"] + img_path).convert('RGB')
+        img = Image.open(self.img_dir_paths + img_path).convert('RGB')
         img = self.transform(img)
 
         return img, self.labels[idx]
@@ -339,7 +331,6 @@ def test(encoder, bn, decoder, device, checkitew, lamda):
     list_results_AUPRC = []
 
     for domain in domain_list:
-      test_data_dict[f"test_{domain}"]
       auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, test_data_dict[f"test_{domain}"], device,
                                                type_of_test='EFDM_test',
                                                img_size=256, checkitew = checkitew, lamda=lamda, dataset_name='MVTEC')
@@ -375,7 +366,7 @@ def train(args):
         data_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/unsupervised/4domain/20240412-MVTEC-{checkitew}.npz'
     if args.domain_cnt == 1:
         data_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/unsupervised/1domain/20240412-MVTEC-{checkitew}.npz'
-
+    global data
     data = np.load(data_path)
     train_data = MVTECDataset(img_paths=data["train_set_path"], labels = data["train_labels"], transform=resize_transform)
     train_data = AugMixDatasetMVTec(train_data, preprocess)
@@ -479,7 +470,8 @@ def train(args):
         logging.info('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
 
         lamda = 0.5
-            
+        # if epoch < epochs - 1:
+        #   continue
         inference_encoder.load_state_dict(encoder.state_dict())
         inference_encoder.eval()
         auroc, auprc = evaluation_ATTA(inference_encoder, bn, decoder, val_dataloader, device,
@@ -539,6 +531,7 @@ if __name__ == '__main__':
     args.add_argument("--results_save_path",type=str,default="/DEBUG")
     args.add_argument("--domain_cnt", type=int,default=4)
     args.add_argument("--checkitew", type=str, default="bottle")
+    args.add_argument("--severity", type=int,default=3)
     args = args.parse_args()
     epochs = args.epochs
     learning_rate = args.learning_rate
