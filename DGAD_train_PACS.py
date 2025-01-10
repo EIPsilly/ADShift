@@ -490,7 +490,7 @@ def train(normal_class, anomaly_class, running_times = 0):
     if args.domain_cnt == 3:
         data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
     if args.domain_cnt == 1:
-        data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/1domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
+        data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/1domain/20241124-PACS-{normal_class}-{anomaly_class}.npz'
     
     if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
         pass
@@ -552,7 +552,7 @@ def train(normal_class, anomaly_class, running_times = 0):
     print(file_name)
 
     if os.path.exists(f'./results{args.results_save_path}') == False:
-        os.mkdir(f'./results{args.results_save_path}')
+        os.makedirs(f'./results{args.results_save_path}')
     
     if os.path.exists(f'./experiment{args.results_save_path}') == False:
         os.makedirs(f'./experiment{args.results_save_path}')
@@ -666,7 +666,7 @@ if __name__ == '__main__':
     args.add_argument("--gpu",type=str,default="2")
     args.add_argument("--running_times",type=int,default=0)
     args.add_argument("--results_save_path",type=str,default="/DEBUG")
-    args.add_argument("--domain_cnt",type=int,default=3)
+    args.add_argument("--domain_cnt",type=int,default=1)
     args.add_argument("--normal_class", nargs="+", type=int, default=[0])
     args = args.parse_args()
     # args = args.parse_args(["--epochs", "2", "--results_save_path", "/3domain", "--gpu", "3"])
