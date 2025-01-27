@@ -413,7 +413,7 @@ def train(args):
     # if os.path.exists(f'./checkpoints/many-versus-many/test{running_times}') == False:
     #     os.mkdir(f'./checkpoints/many-versus-many/test{running_times}')
     if os.path.exists(f'./results{args.results_save_path}') == False:
-        os.mkdir(f'./results{args.results_save_path}')
+        os.makedirs(f'./results{args.results_save_path}')
     
     if os.path.exists(f'./experiment{args.results_save_path}') == False:
         os.makedirs(f'./experiment{args.results_save_path}')
@@ -526,10 +526,10 @@ if __name__ == '__main__':
     args.add_argument("--epochs",type=int,default=2)
     args.add_argument("--contamination_rate", type=float ,default=0)
     args.add_argument("--learning_rate",type=float,default=0.005)
-    args.add_argument("--gpu",type=str,default="3")
+    args.add_argument("--gpu",type=str,default="0")
     args.add_argument("--running_times",type=int,default=0)
     args.add_argument("--results_save_path",type=str,default="/DEBUG")
-    args.add_argument("--domain_cnt", type=int,default=4)
+    args.add_argument("--domain_cnt", type=int,default=1)
     args.add_argument("--checkitew", type=str, default="bottle")
     args.add_argument("--severity", type=int,default=3)
     args = args.parse_args()

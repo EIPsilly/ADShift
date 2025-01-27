@@ -21,8 +21,6 @@ import yaml
 with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', encoding="utf-8") as f:
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 
-labels_dict = config["PACS_idx_to_class"]
-
 def cal_anomaly_map(fs_list, ft_list, out_size=224, amap_mode='mul'):
     if amap_mode == 'mul':
         anomaly_map = np.ones([out_size, out_size])
@@ -55,6 +53,11 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader, device, type_of_test, img_
         img_path = np.random.choice(data["train_set_path"], 1)
         link_to_normal_sample = config["PACS_root"] + img_path.item() #update the link here
         normal_image = Image.open(link_to_normal_sample).convert("RGB")
+    
+    if dataset_name == 'MNIST':
+        img_path = np.random.choice(data["train_set_path"], 1)
+        link_to_normal_sample = img_path.item() #update the link here
+        normal_image = Image.open(link_to_normal_sample).convert("RGB")
 
     if dataset_name != 'mnist':
         mean_train = [0.485, 0.456, 0.406]
@@ -79,16 +82,6 @@ def evaluation_ATTA(encoder, bn, decoder, dataloader, device, type_of_test, img_
     with torch.no_grad():
         for sample in dataloader:
             img, label = sample[0], sample[1]
-            
-            # if validation == False:
-            #     if dataset_name != 'mvtec' and dataset_name != 'mvtec_ood':
-            #         if int(label) in normal_class:
-            #             label = 0
-            #         else:
-            #             label = 1
-            #     else:
-            #         label = int(torch.sum(label) != 0)
-
 
             if img.shape[1] == 1:
                 img = img.repeat(1, 3, 1, 1)
@@ -153,7 +146,7 @@ def loss_concat(a, b):
     loss += torch.mean(1 - cos_loss(a_map, b_map))
     return loss
 
-class PACSDataset(torch.utils.data.Dataset):
+class MNISTDataset(torch.utils.data.Dataset):
     def __init__(self, img_paths, labels, transform):
         
         self.transform = transform
@@ -161,15 +154,17 @@ class PACSDataset(torch.utils.data.Dataset):
         self.img_paths = img_paths
         self.labels = labels
 
+        self.img_list = []
+        for img_path in self.img_paths:
+            img = Image.open(img_path).convert('RGB')
+            img = self.transform(img)
+            self.img_list.append(img)
+
     def __len__(self):
         return len(self.img_paths)
 
     def __getitem__(self, idx):
-        img_path= self.img_paths[idx]
-        img = Image.open(config["PACS_root"] + img_path).convert('RGB')
-        img = self.transform(img)
-
-        return img, self.labels[idx]
+        return self.img_list[idx], self.labels[idx]
 
 IMAGE_SIZE = 256
 mean_train = [0.485, 0.456, 0.406]
@@ -288,7 +283,7 @@ def sharpness(pil_img, level):
     return ImageEnhance.Sharpness(pil_img).enhance(level)
 
 
-def augpacs(image, preprocess, severity=3, width=3, depth=-1, alpha=1.):
+def augMNIST(image, preprocess, severity=3, width=3, depth=-1, alpha=1.):
   aug_list = [
       autocontrast, equalize, posterize, solarize, color, contrast, brightness, sharpness
   ]
@@ -311,7 +306,7 @@ def augpacs(image, preprocess, severity=3, width=3, depth=-1, alpha=1.):
   mixed = (1 - m) * preprocess_img + m * mix
   return mixed
 
-class AugMixDatasetPACS(torch.utils.data.Dataset):
+class AugMixDatasetMNIST(torch.utils.data.Dataset):
   """Dataset wrapper to perform AugMix augmentation."""
 
   def __init__(self, dataset, preprocess):
@@ -325,7 +320,7 @@ class AugMixDatasetPACS(torch.utils.data.Dataset):
     ])
   def __getitem__(self, i):
     x, _ = self.dataset[i]
-    return self.preprocess(x), augpacs(x, self.preprocess), self.gray_preprocess(x)
+    return self.preprocess(x), augMNIST(x, self.preprocess), self.gray_preprocess(x)
 
   def __len__(self):
     return len(self.dataset)
@@ -334,37 +329,37 @@ def test(encoder, bn, decoder, device, normal_class, lamda, _class_):
     
     list_results_AUROC = []
     list_results_AUPRC = []
-    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_photo_loader, device,
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_MNIST_loader, device,
                                                type_of_test='EFDM_test',
-                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
+                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='MNIST', _class_=_class_)
     list_results_AUROC.append(auroc_sp)
     list_results_AUPRC.append(auprc)
-    print('Sample AUROC_photo {:.4f}'.format(auroc_sp))
-    print('Sample AUPRC_photo {:.4f}'.format(auprc))
+    print('Sample AUROC_MNIST {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_MNIST {:.4f}'.format(auprc))
 
-    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_art_painting_loader, device,
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_MNIST_M_loader, device,
                                                type_of_test='EFDM_test',
-                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
+                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='MNIST', _class_=_class_)
     list_results_AUROC.append(auroc_sp)
     list_results_AUPRC.append(auprc)
-    print('Sample AUROC_art {:.4f}'.format(auroc_sp))
-    print('Sample AUPRC_art {:.4f}'.format(auprc))
+    print('Sample AUROC_MNIST_M {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_MNIST_M {:.4f}'.format(auprc))
 
-    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_cartoon_loader, device,
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_ID_SYN_loader, device,
                                                type_of_test='EFDM_test',
-                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
+                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='MNIST', _class_=_class_)
     list_results_AUROC.append(auroc_sp)
     list_results_AUPRC.append(auprc)
-    print('Sample AUROC_cartoon {:.4f}'.format(auroc_sp))
-    print('Sample AUPRC_cartoon {:.4f}'.format(auprc))
+    print('Sample AUROC_SYN {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_SYN {:.4f}'.format(auprc))
 
-    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_OOD_sketch_loader, device,
+    auroc_sp, auprc = evaluation_ATTA(encoder, bn, decoder, data_OOD_SVHN_loader, device,
                                                type_of_test='EFDM_test',
-                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_)
+                                               img_size=256, normal_class = normal_class, lamda=lamda, dataset_name='MNIST', _class_=_class_)
     list_results_AUROC.append(auroc_sp)
     list_results_AUPRC.append(auprc)
-    print('Sample AUROC_sketch {:.4f}'.format(auroc_sp))
-    print('Sample AUPRC_sketch {:.4f}'.format(auprc))
+    print('Sample AUROC_SVHN {:.4f}'.format(auroc_sp))
+    print('Sample AUPRC_SVHN {:.4f}'.format(auprc))
     print(list_results_AUROC)
     print(list_results_AUPRC)
 
@@ -376,11 +371,8 @@ def train(normal_class, anomaly_class, running_times = 0):
     batch_size = 16
     image_size = 256
 
-    labels_dict = config["PACS_class_to_idx"]
-
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     logging.info(device)
-
 
     resize_transform = transforms.Compose([
         transforms.Resize((image_size, image_size)),
@@ -393,20 +385,12 @@ def train(normal_class, anomaly_class, running_times = 0):
                              std=std_train),
     ])
 
-    if args.domain_cnt == 3:
-        data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
-    if args.domain_cnt == 1:
-        data_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/1domain/20241124-PACS-{normal_class}-{anomaly_class}.npz'
+    data_path = f'../domain-generalization-for-anomaly-detection/data/MNIST/unsupervised/{args.domain_cnt}domain/20250120-MNIST-{",".join(args.in_domain_type)}-0-123456789-{args.label_discount}.npz'
     
-    if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
-        pass
-    else:
-        if args.domain_cnt == 3:
-            data_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
     global data
     data = np.load(data_path)
-    train_data = PACSDataset(img_paths=data["train_set_path"], labels = data["train_labels"], transform=resize_transform)
-    train_data = AugMixDatasetPACS(train_data, preprocess)
+    train_data = MNISTDataset(img_paths=data["train_set_path"], labels = data["train_labels"], transform=resize_transform)
+    train_data = AugMixDatasetMNIST(train_data, preprocess)
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     logging.info(f'train_labels: {Counter(data["train_labels"])}')
     
@@ -417,27 +401,27 @@ def train(normal_class, anomaly_class, running_times = 0):
         transforms.Normalize(mean=mean_train,
                              std=std_train)])
     
-    val_data = PACSDataset(img_paths=data["val_set_path"], labels = data["val_labels"], transform=img_transforms)
+    val_data = MNISTDataset(img_paths=data["val_set_path"], labels = data["val_labels"], transform=img_transforms)
     val_dataloader = torch.utils.data.DataLoader(val_data, batch_size=1, shuffle=True)
     logging.info(f'val_labels: {Counter(data["val_labels"])}')
     
     
-    test_data_ID_photo = PACSDataset(data["test_photo"], data["test_photo_labels"], transform=img_transforms)
-    test_data_ID_art_painting = PACSDataset(data["test_art_painting"], data["test_art_painting_labels"], transform=img_transforms)
-    test_data_ID_cartoon = PACSDataset(data["test_cartoon"], data["test_cartoon_labels"], transform=img_transforms)
-    test_data_OOD_sketch = PACSDataset(data["test_sketch"], data["test_sketch_labels"], transform=img_transforms)
+    test_data_ID_MNIST = MNISTDataset(data["test_MNIST"], data["test_MNIST_labels"], transform=img_transforms)
+    test_data_ID_MNIST_M = MNISTDataset(data["test_MNIST_M"], data["test_MNIST_M_labels"], transform=img_transforms)
+    test_data_ID_SYN = MNISTDataset(data["test_SYN"], data["test_SYN_labels"], transform=img_transforms)
+    test_data_OOD_SVHN = MNISTDataset(data["test_SVHN"], data["test_SVHN_labels"], transform=img_transforms)
     
-    logging.info(f'test_photo_labels: {Counter(data["test_photo_labels"])}')
-    logging.info(f'test_art_painting_labels: {Counter(data["test_art_painting_labels"])}')
-    logging.info(f'test_cartoon_labels: {Counter(data["test_cartoon_labels"])}')
-    logging.info(f'test_sketch_labels: {Counter(data["test_sketch_labels"])}')
+    logging.info(f'test_MNIST_labels: {Counter(data["test_MNIST_labels"])}')
+    logging.info(f'test_MNIST_M_labels: {Counter(data["test_MNIST_M_labels"])}')
+    logging.info(f'test_SYN_labels: {Counter(data["test_SYN_labels"])}')
+    logging.info(f'test_SVHN_labels: {Counter(data["test_SVHN_labels"])}')
 
-    global data_ID_photo_loader, data_ID_art_painting_loader, data_ID_cartoon_loader, data_OOD_sketch_loader
+    global data_ID_MNIST_loader, data_ID_MNIST_M_loader, data_ID_SYN_loader, data_OOD_SVHN_loader
     
-    data_ID_photo_loader = torch.utils.data.DataLoader(test_data_ID_photo, batch_size = 1, shuffle = False)
-    data_ID_art_painting_loader = torch.utils.data.DataLoader(test_data_ID_art_painting, batch_size = 1, shuffle = False)
-    data_ID_cartoon_loader = torch.utils.data.DataLoader(test_data_ID_cartoon, batch_size = 1, shuffle = False)
-    data_OOD_sketch_loader = torch.utils.data.DataLoader(test_data_OOD_sketch, batch_size = 1, shuffle = False)
+    data_ID_MNIST_loader = torch.utils.data.DataLoader(test_data_ID_MNIST, batch_size = 1, shuffle = False)
+    data_ID_MNIST_M_loader = torch.utils.data.DataLoader(test_data_ID_MNIST_M, batch_size = 1, shuffle = False)
+    data_ID_SYN_loader = torch.utils.data.DataLoader(test_data_ID_SYN, batch_size = 1, shuffle = False)
+    data_OOD_SVHN_loader = torch.utils.data.DataLoader(test_data_OOD_SVHN, batch_size = 1, shuffle = False)
     
     encoder, bn = wide_resnet50_2(pretrained=True)
     encoder = encoder.to(device)
@@ -449,19 +433,13 @@ def train(normal_class, anomaly_class, running_times = 0):
     optimizer = torch.optim.Adam(list(decoder.parameters()) + list(bn.parameters()), lr=learning_rate,
                                  betas=(0.5, 0.999))
 
-    file_name = f'domain_cnt={args.domain_cnt},normal_class={args.normal_class},learning_rate={args.learning_rate},epochs={args.epochs},cnt={running_times}'
+    file_name = f'domain_cnt={args.domain_cnt},normal_class={args.normal_class},learning_rate={args.learning_rate},epochs={args.epochs},label_discount={args.label_discount},cnt={running_times}'
     if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
         pass
     else:
         if args.domain_cnt == 3:
             file_name += f",contamination={args.contamination_rate}"
     print(file_name)
-
-    if os.path.exists(f'./results{args.results_save_path}') == False:
-        os.makedirs(f'./results{args.results_save_path}')
-    
-    if os.path.exists(f'./experiment{args.results_save_path}') == False:
-        os.makedirs(f'./experiment{args.results_save_path}')
     
     import resnet_TTA
     inference_encoder, _ = resnet_TTA.wide_resnet50_2()
@@ -519,11 +497,11 @@ def train(normal_class, anomaly_class, running_times = 0):
         inference_encoder.eval()
         auroc, auprc = evaluation_ATTA(inference_encoder, bn, decoder, val_dataloader, device,
                                                 type_of_test='EFDM_test',
-                                                img_size=256, normal_class=normal_class, lamda=lamda, dataset_name='PACS', _class_=_class_, validation=True)
+                                                img_size=256, normal_class=normal_class, lamda=lamda, dataset_name='MNIST', _class_=_class_, validation=True)
         val_AUROC_list.append(auroc)
         val_AUPRC_list.append(auprc)
-        print('Sample AUROC_photo {:.4f}'.format(auroc))
-        print('Sample AUPRC_photo {:.4f}'.format(auprc))
+        print('Sample AUROC_val {:.4f}'.format(auroc))
+        print('Sample AUPRC_val {:.4f}'.format(auprc))
 
         if val_max_metric["AUPRC"] < auprc:
            val_max_metric["AUROC"] = auroc
@@ -541,7 +519,7 @@ def train(normal_class, anomaly_class, running_times = 0):
     inference_encoder.eval()
     test_AUROC, test_AUPRC = test(inference_encoder, bn, decoder, device, normal_class, lamda, _class_)
     test_metric = {"epochs": val_max_metric["epochs"]}
-    for idx, key in enumerate(["photo", "art_painting", "cartoon", "sketch"]):
+    for idx, key in enumerate(["MNIST", "MNIST_M", "SYN", "SVHN"]):
         test_metric[key] = {
             "AUROC": test_AUROC[idx],
             "AUPRC": test_AUPRC[idx]
@@ -559,6 +537,8 @@ def train(normal_class, anomaly_class, running_times = 0):
              val_max_metric = np.array(val_max_metric),
              test_results_list = np.array(test_results_list),
              args = np.array(args.__dict__),)
+            
+    os.remove(f'./experiment{args.results_save_path}/{file_name}.pt')  
     return
 
 
@@ -572,17 +552,28 @@ if __name__ == '__main__':
     args.add_argument("--gpu",type=str,default="2")
     args.add_argument("--running_times",type=int,default=0)
     args.add_argument("--results_save_path",type=str,default="/DEBUG")
-    args.add_argument("--domain_cnt",type=int,default=1)
+    args.add_argument("--domain_cnt",type=int,default=3)
     args.add_argument("--normal_class", nargs="+", type=int, default=[0])
+    args.add_argument("--in_domain_type", nargs="+", type=str, default=["SVHN", "MNIST_M", "MNIST"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
+    args.add_argument("--label_discount", type=float, default=1.0)
     args = args.parse_args()
     # args = args.parse_args(["--epochs", "2", "--results_save_path", "/3domain", "--gpu", "3"])
     epochs = args.epochs
     learning_rate = args.learning_rate
-    
+    if args.label_discount != 0:
+      args.label_discount = int(8 * 27 / args.label_discount)
+    list.sort(args.in_domain_type)
+
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+
+    if os.path.exists(f'./results{args.results_save_path}') == False:
+      os.makedirs(f'./results{args.results_save_path}')
+    
+    if os.path.exists(f'./experiment{args.results_save_path}') == False:
+      os.makedirs(f'./experiment{args.results_save_path}')
     
     normal_class = str(args.normal_class[0])
-    anomaly_class = "".join(map(str,(set([0,1,2,3,4,5,6]) - set(args.normal_class))))
+    anomaly_class = "".join(map(str,(set([0,1,2,3,4,5,6,7,8,9]) - set(args.normal_class))))
     print("normal_class", normal_class)
     print("anomaly_class", anomaly_class)
     
