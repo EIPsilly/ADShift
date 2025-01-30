@@ -403,6 +403,9 @@ def train(normal_class, anomaly_class, running_times = 0):
     else:
         if args.domain_cnt == 3:
             data_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
+        if args.domain_cnt == 1:
+            data_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/unsupervised/1domain/20241124-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
+
     global data
     data = np.load(data_path)
     train_data = PACSDataset(img_paths=data["train_set_path"], labels = data["train_labels"], transform=resize_transform)
@@ -453,8 +456,7 @@ def train(normal_class, anomaly_class, running_times = 0):
     if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
         pass
     else:
-        if args.domain_cnt == 3:
-            file_name += f",contamination={args.contamination_rate}"
+        file_name += f",contamination={args.contamination_rate}"
     print(file_name)
 
     if os.path.exists(f'./results{args.results_save_path}') == False:
@@ -559,6 +561,7 @@ def train(normal_class, anomaly_class, running_times = 0):
              val_max_metric = np.array(val_max_metric),
              test_results_list = np.array(test_results_list),
              args = np.array(args.__dict__),)
+    os.remove(f'./experiment{args.results_save_path}/{file_name}.pt')
     return
 
 
@@ -567,13 +570,13 @@ if __name__ == '__main__':
     logging.getLogger().setLevel(logging.INFO)
     args = argparse.ArgumentParser()
     args.add_argument("--epochs",type=int,default=2)
-    args.add_argument("--contamination_rate", type=float ,default=0)
+    args.add_argument("--contamination_rate", type=float ,default=0.04)
     args.add_argument("--learning_rate",type=float,default=0.005)
     args.add_argument("--gpu",type=str,default="2")
     args.add_argument("--running_times",type=int,default=0)
     args.add_argument("--results_save_path",type=str,default="/DEBUG")
     args.add_argument("--domain_cnt",type=int,default=1)
-    args.add_argument("--normal_class", nargs="+", type=int, default=[0])
+    args.add_argument("--normal_class", nargs="+", type=int, default=[6])
     args = args.parse_args()
     # args = args.parse_args(["--epochs", "2", "--results_save_path", "/3domain", "--gpu", "3"])
     epochs = args.epochs

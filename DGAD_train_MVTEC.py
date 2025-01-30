@@ -516,6 +516,7 @@ def train(args):
              val_max_metric = np.array(val_max_metric),
              test_results_list = np.array(test_results_list),
              args = np.array(args.__dict__),)
+    os.remove(f'./experiment{args.results_save_path}/{file_name}.pt')  
     return
 
 
