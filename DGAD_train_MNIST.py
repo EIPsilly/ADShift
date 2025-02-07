@@ -1,3 +1,4 @@
+import time
 import torchvision.transforms as T
 from sklearn.metrics import roc_auc_score
 from scipy.ndimage import gaussian_filter
@@ -457,6 +458,7 @@ def train(normal_class, anomaly_class, running_times = 0):
         bn.train()
         decoder.train()
         loss_list = []
+        train_start = time.time()
         for normal, augmix_img, gray_img in train_dataloader:
             normal = normal.to(device)  # (3,256,256)
             inputs_normal = encoder(normal) # [(256,64,64), (512,32,32), (1024,16,16)]
@@ -488,8 +490,9 @@ def train(normal_class, anomaly_class, running_times = 0):
             optimizer.step()
             loss_list.append(loss.item())
         
+        train_end = time.time()
         train_results_loss.append(loss_list)
-        logging.info('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
+        logging.info('epoch [{}/{}], loss:{:.4f}, train_time:{}'.format(epoch + 1, epochs, np.mean(loss_list), train_end - train_start))
 
         lamda = 0.5
             
